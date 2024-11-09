@@ -23,8 +23,8 @@ chrome_options.add_argument("--window-size=1920x1080")
 url = "https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm&idioma=cas&id=A434305381910"
 
 # Credenciales de Twilio desde variables de entorno
-ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 TO_WHATSAPP_NUMBER = os.getenv("TO_WHATSAPP_NUMBER")
 
@@ -79,7 +79,7 @@ def comprobar_radares(driver):
 
 def enviar_mensaje_whatsapp(mensaje):
     """Envía el mensaje especificado por WhatsApp usando Twilio."""
-    client = Client(ACCOUNT_SID, AUTH_TOKEN)
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
     try:
         message = client.messages.create(
             body=mensaje,
