@@ -2,7 +2,7 @@ name: Radar Notification
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Configura la hora de ejecución en formato UTC. Aquí es a las 9:00 AM cada día.
+    - cron: '0 11 * * *'  # Se ejecuta a las 11:00 UTC de cada día (España -> UTC + 1)
   workflow_dispatch:
 
 jobs:
