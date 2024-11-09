@@ -30,4 +30,4 @@ jobs:
         TWILIO_WHATSAPP_NUMBER: ${{ secrets.TWILIO_WHATSAPP_NUMBER }}
         TO_WHATSAPP_NUMBER: ${{ secrets.TO_WHATSAPP_NUMBER }}
       run: |
-        python radar_notification.py
+        python mobile_radar_notifier.py
