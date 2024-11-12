@@ -78,17 +78,37 @@ def comprobar_radares(driver):
         return "Estado de radar desconocido."
 
 def enviar_mensaje_whatsapp(mensaje):
-    """Envía el mensaje especificado por WhatsApp usando Twilio."""
+    """Envía el mensaje especificado por WhatsApp usando Twilio y verifica su estado."""
     client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
     try:
+        # Enviar el mensaje y guardar el SID del mensaje
         message = client.messages.create(
             body=mensaje,
             from_=TWILIO_WHATSAPP_NUMBER,
             to=TO_WHATSAPP_NUMBER
         )
-        logging.info(f"Mensaje enviado por WhatsApp: {message}")
+        logging.info(f"Mensaje enviado por WhatsApp: {message.sid}")
+        
+        # Esperar unos segundos antes de verificar el estado
+        time.sleep(5)  # Esto permite que el estado del mensaje se actualice en Twilio
+
+        # Obtener el estado del mensaje
+        message_status = client.messages(message.sid).fetch().status
+        if message_status == 'delivered':
+            logging.info("El mensaje fue entregado con éxito.")
+        elif message_status in ['failed', 'undelivered']:
+            logging.error(f"El mensaje no se entregó correctamente. Estado: {message_status}")
+            raise Exception("Error en la entrega del mensaje de WhatsApp")  # Provoca el fallo en GitHub Actions
+        elif message_status == 'queued':
+            logging.info("El mensaje está en cola y será entregado pronto.")
+        elif message_status == 'sent':
+            logging.info("El mensaje ha sido enviado, pero la entrega aún no se ha confirmado.")
+        else:
+            logging.warning(f"Estado desconocido del mensaje: {message_status}")
+
     except Exception as e:
         logging.error(f"Error al enviar mensaje por WhatsApp: {e}")
+        raise  # Esto asegura que el error se propague a GitHub Actions
 
 def main():
     """Función principal que inicializa el driver, carga la página, verifica el estado y envía el mensaje por WhatsApp."""
