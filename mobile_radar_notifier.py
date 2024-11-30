@@ -1,13 +1,13 @@
 import os
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-from twilio.rest import Client
+from datetime import datetime
 import logging
+import traceback
 import time
 
 # Configuración básica de logueo
@@ -20,13 +20,16 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920x1080")
 
 # URL de la página que quieres monitorear
-url = "https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm&idioma=cas&id=A434305381910"
+url = os.getenv("DONOSTI_RADAR_WEB")
 
 # Credenciales de Twilio desde variables de entorno
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 TO_WHATSAPP_NUMBER = os.getenv("TO_WHATSAPP_NUMBER")
+
+# Token del bot de Telegram y el ID del chat donde se enviarán los mensajes
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Token de tu bot
 
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
@@ -35,7 +38,7 @@ def inicializar_driver():
         logging.info("Driver de Chrome inicializado exitosamente en modo headless.")
         return driver
     except Exception as e:
-        logging.error(f"Error al inicializar el driver de Chrome: {e}")
+        logging.error("Error al inicializar el driver de Chrome: %s", traceback.format_exc())
         return None
 
 def cargar_pagina(driver, url, max_retries=3):
@@ -48,74 +51,178 @@ def cargar_pagina(driver, url, max_retries=3):
         except Exception as e:
             logging.warning(f"Error al cargar la página: {e}. Reintentando ({attempt + 1}/{max_retries})...")
             time.sleep(2)
-    logging.error("No se pudo cargar la página después de múltiples intentos.")
-    return False
+    logging.error("No se pudo cargar la página después de múltiples intentos: %s", traceback.format_exc())
+    return False # No lanza excepción, pero avisa de fallo.
 
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve el estado como texto."""
     try:
+        fecha_actual = datetime.now().strftime("%d/%m/%Y")
         elementos_span12 = driver.find_elements(By.CLASS_NAME, "span12")
-        
-        radar_encontrado = False
+
         for elemento in elementos_span12:
             parrafos = elemento.find_elements(By.TAG_NAME, "p")
-            for parrafo in parrafos:
-                estado_texto = parrafo.text
-                if "No hay ninguna ubicación planificada para hoy." in estado_texto:
-                    logging.info("No hay ninguna ubicación planificada para hoy.")
-                    return "No hay ninguna ubicación planificada para hoy."
-                    radar_encontrado = True
-                    break
-            if radar_encontrado:
-                break
 
-        if not radar_encontrado:
-            logging.info("Puede que haya ubicaciones de radar planificadas.")
-            return "Puede que haya ubicaciones de radar planificadas."
+            for i, parrafo in enumerate(parrafos):
+                texto_parrafo = parrafo.text
+
+                if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
+                    # captura_mapa(driver)
+                    logging.info("No hay radares móviles planificados para hoy.")
+                    return "No hay radares móviles planificados para hoy."
+
+                elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                    if i + 1 < len(parrafos):
+                        ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
+                        # captura_mapa(driver)
+                        logging.info(f"Radares móviles encontrados: {ubicaciones}")
+                        return ubicaciones
+
+        logging.warning("Estado de radares desconocido.")
+        return "Estado de radares desconocido."
+    except Exception as e:
+        logging.error("Error al comprobar los radares: %s", traceback.format_exc())
+        raise  # Propaga el error al `main`.
+
+def obtener_ids_usuarios():
+    """Obtiene los IDs de los usuarios que han interactuado con el bot."""
+    try:
+        # Hacer una solicitud GET a la API de Telegram para obtener los updates
+        response = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates")
+        
+        # Comprobar si la solicitud fue exitosa
+        if response.status_code == 200:
+            updates = response.json()
+
+            # Si hay resultados, extraemos los IDs de los usuarios
+            if updates.get('result'):
+                ids = []
+                for update in updates['result']:
+                    # Verificamos que haya un mensaje y extraemos el ID del usuario
+                    if 'message' in update and 'from' in update['message']:
+                        user_id = update['message']['from']['id']
+                        if user_id not in ids:
+                            ids.append(user_id)
+
+                logging.info(f"IDs de usuarios obtenidos: {ids}")
+                return ids
+            else:
+                logging.info("No hay interacciones recientes.")
+                return []
+        else:
+            logging.error("Error al realizar la solicitud a la API de Telegram: %s", response.status_code)
+            return []
     
     except Exception as e:
-        logging.error(f"Error al comprobar el estado de los radares: {e}")
-        return "Estado de radar desconocido."
+        logging.error("Error al obtener los IDs de los usuarios: %s", traceback.format_exc())
+        raise  # Propaga el error para manejo en `main`
 
-def enviar_mensaje_whatsapp(mensaje):
-    """Envía el mensaje especificado por WhatsApp usando Twilio y verifica su estado."""
-    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+def enviar_mensaje_telegram(ids_usuarios, mensaje):
+    """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
     try:
-        # Enviar el mensaje y guardar el SID del mensaje
-        message = client.messages.create(
-            body=mensaje,
-            from_=TWILIO_WHATSAPP_NUMBER,
-            to=TO_WHATSAPP_NUMBER
-        )
-        logging.info(f"Mensaje enviado por WhatsApp: {message.sid}")
-        
-        # Esperar unos segundos antes de verificar el estado
-        time.sleep(5)  # Esto permite que el estado del mensaje se actualice en Twilio
-
-        # Obtener el estado del mensaje
-        message_status = client.messages(message.sid).fetch().status
-        if message_status == 'delivered':
-            logging.info("El mensaje fue entregado con éxito.")
-        elif message_status in ['failed', 'undelivered']:
-            logging.error(f"El mensaje no se entregó correctamente. Estado: {message_status}")
-            raise Exception("Error en la entrega del mensaje de WhatsApp")  # Provoca el fallo en GitHub Actions
-        elif message_status == 'queued':
-            logging.info("El mensaje está en cola y será entregado pronto.")
-        elif message_status == 'sent':
-            logging.info("El mensaje ha sido enviado, pero la entrega aún no se ha confirmado.")
-        else:
-            logging.warning(f"Estado desconocido del mensaje: {message_status}")
-
+        for user_id in ids_usuarios:
+            # Construir la URL de la API de Telegram para enviar el mensaje
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            
+            # Parámetros de la solicitud
+            params = {
+                'chat_id': user_id,
+                'text': mensaje
+            }
+            
+            # Hacer la solicitud POST para enviar el mensaje
+            response = requests.post(url, data=params)
+            
+            if response.status_code == 200:
+                logging.info(f"Mensaje enviado correctamente a {user_id}")
+            else:
+                logging.error(f"Error al enviar el mensaje a {user_id}: {response.status_code}")
     except Exception as e:
-        logging.error(f"Error al enviar mensaje por WhatsApp: {e}")
-        raise  # Esto asegura que el error se propague a GitHub Actions
+        logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
+        raise  # Propaga el error para manejo en `main`
+
+
+# def captura_mapa(driver):
+#     """Toma una captura de pantalla del mapa interactivo y la guarda en la carpeta 'capturas'."""
+#     try:
+#         # Crear la carpeta 'capturas' si no existe
+#         carpeta_destino = os.path.join(os.getcwd(), 'screenshots')
+#         if not os.path.exists(carpeta_destino):
+#             os.makedirs(carpeta_destino)
+
+#         # Obtener la fecha y hora actual para crear un nombre único para la captura
+#         fecha_hora = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+#         screenshot_path = os.path.join(carpeta_destino, f"screenshot_{fecha_hora}.png")
+
+#         # Localizar el contenedor del mapa
+#         mapa_elemento = driver.find_element(By.ID, "mapa")
+
+#         # Capturar directamente el área del mapa
+#         mapa_elemento.screenshot(screenshot_path)
+#         logging.info(f"Captura de mapa guardada en: {screenshot_path}")
+
+#     except Exception as e:
+#         logging.error("Error al tomar la captura del mapa: %s", traceback.format_exc())
+
+# def extraer_imagen_canvas(driver):
+#     """Extrae la imagen del <canvas> dentro del contenedor del mapa y la guarda como archivo."""
+#     try:
+#         # Crear la carpeta 'capturas' si no existe
+#         carpeta_destino = os.path.join(os.getcwd(), 'screenshots')
+#         if not os.path.exists(carpeta_destino):
+#             os.makedirs(carpeta_destino)
+
+#         # Obtener la fecha y hora actual para crear un nombre único para la captura
+#         fecha_hora = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+#         screenshot_path = os.path.join(carpeta_destino, f"screenshot_{fecha_hora}.png")
+
+#         # Localizar el contenedor del mapa
+#         mapa_elemento = driver.find_element(By.ID, "mapa")
+
+#         # Buscar el canvas dentro del contenedor
+#         canvas = mapa_elemento.find_element(By.TAG_NAME, "canvas")
+#         logging.info("Canvas encontrado dentro del contenedor del mapa.")
+
+#         # Cambiar el estilo del banner de cookies para asegurarse de que no está por encima del mapa
+#         driver.execute_script("""
+#             document.querySelector('#cookie-banner').style.zIndex = '-1';
+#         """)
+
+#         # Ejecutar JavaScript para extraer la imagen como base64
+#         canvas_data_url = driver.execute_script(
+#             "return arguments[0].toDataURL('image/png');", canvas
+#         )
+
+#         # Decodificar la imagen en base64 y guardarla como archivo
+#         canvas_data = canvas_data_url.split(',')[1]
+#         with open(carpeta_destino, "wb") as f:
+#             f.write(base64.b64decode(canvas_data))
+        
+#         logging.info(f"Imagen del canvas guardada exitosamente en {carpeta_destino}")
+    
+#     except Exception as e:
+#         logging.error(f"Error al extraer la imagen del canvas: {traceback.format_exc()}")
 
 def main():
     """Función principal que inicializa el driver, carga la página, verifica el estado y envía el mensaje por WhatsApp."""
+
+    # Inicializar el driver
     driver = inicializar_driver()
+
+    # Cargar la página y comprobar los radares
     if driver and cargar_pagina(driver, url):
         estado_radar = comprobar_radares(driver)
-        enviar_mensaje_whatsapp(estado_radar)
+
+        # Obtener los IDs de los usuarios
+        ids_usuarios = obtener_ids_usuarios()
+
+        if ids_usuarios:
+            # Enviar la información de los radares a todos los usuarios
+            enviar_mensaje_telegram(ids_usuarios, estado_radar)
+        else:
+            logging.info("No hay usuarios a los que enviar el mensaje.")
+
+    # Cerrar el driver
     if driver:
         driver.quit()
         logging.info("Driver de Chrome cerrado correctamente.")
