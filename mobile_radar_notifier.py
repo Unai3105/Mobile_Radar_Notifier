@@ -52,7 +52,7 @@ def cargar_pagina(driver, donosti_radar_web_url, max_retries=3):
             logging.warning(f"Error al cargar la página: {e}. Reintentando ({attempt + 1}/{max_retries})...")
             time.sleep(2)
     logging.error("No se pudo cargar la página después de múltiples intentos: %s", traceback.format_exc())
-    return False # No lanza excepción, pero avisa de fallo.
+    raise # Propaga el error al `main`.
 
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve el estado como texto."""
