@@ -20,7 +20,7 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920x1080")
 
 # URL de la página que quieres monitorear
-url = os.getenv("DONOSTI_RADAR_WEB")
+donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
 
 # Credenciales de Twilio desde variables de entorno
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -41,11 +41,11 @@ def inicializar_driver():
         logging.error("Error al inicializar el driver de Chrome: %s", traceback.format_exc())
         return None
 
-def cargar_pagina(driver, url, max_retries=3):
+def cargar_pagina(driver, donosti_radar_web_url, max_retries=3):
     """Carga la página y reintenta en caso de fallos."""
     for attempt in range(max_retries):
         try:
-            driver.get(url)
+            driver.get(donosti_radar_web_url)
             logging.info(f"Página cargada correctamente en el intento {attempt + 1}.")
             return True
         except Exception as e:
@@ -122,7 +122,7 @@ def enviar_mensaje_telegram(ids_usuarios, mensaje):
     try:
         for user_id in ids_usuarios:
             # Construir la URL de la API de Telegram para enviar el mensaje
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            sendMessage_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
             
             # Parámetros de la solicitud
             params = {
@@ -131,7 +131,7 @@ def enviar_mensaje_telegram(ids_usuarios, mensaje):
             }
             
             # Hacer la solicitud POST para enviar el mensaje
-            response = requests.post(url, data=params)
+            response = requests.post(sendMessage_url, data=params)
             
             if response.status_code == 200:
                 logging.info(f"Mensaje enviado correctamente a {user_id}")
@@ -210,7 +210,7 @@ def main():
     driver = inicializar_driver()
 
     # Cargar la página y comprobar los radares
-    if driver and cargar_pagina(driver, url):
+    if driver and cargar_pagina(driver, donosti_radar_web_url):
         estado_radar = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
