@@ -304,7 +304,7 @@ def main():
             # Enviar la información de los radares a todos los usuarios
             enviar_mensaje_telegram(ids_usuarios, estado_radar)
 
-            if estado_radar == "No hay radares móviles planificados para hoy.":
+            if estado_radar != "No hay radares móviles planificados para hoy.":
                 # Extraer imagen del mapa de los radares
                 img_byte_array = extraer_canvas(driver)
 
