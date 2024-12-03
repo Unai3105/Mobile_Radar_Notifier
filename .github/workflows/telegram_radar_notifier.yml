@@ -1,4 +1,4 @@
-name: Radar Notification
+name: Telegram Radar Notifier
 
 on:
   schedule:
