@@ -12,7 +12,7 @@ import logging
 import time
 import os
 
-# Configuración básica de logueo
+# Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Opciones avanzadas de Chrome
@@ -30,8 +30,8 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 TO_WHATSAPP_NUMBER = os.getenv("TO_WHATSAPP_NUMBER")
 
-# Token del bot de Telegram y el ID del chat donde se enviarán los mensajes
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Token de tu bot
+# Token del bot de Telegram
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
@@ -79,49 +79,13 @@ def ocultar_elementos(driver):
         attribution_element = driver.find_element(By.CSS_SELECTOR, ".ol-attribution")
         driver.execute_script("arguments[0].style.display = 'none';", attribution_element)
 
+        # Buscar el div del control de zoom y ocultarlo
+        zoom_control_element = driver.find_element(By.CSS_SELECTOR, ".ol-zoom")
+        driver.execute_script("arguments[0].style.display = 'none';", zoom_control_element)
+
         logging.info("Elementos ocultos exitosamente.")
     except Exception as e:
         logging.error(f"Error al ocultar los elementos: {e}")
-        raise
-
-def extraer_canvas(driver, output_path="mapa_recortado.png"):
-    """Extrae el contenido del canvas de la página y lo guarda como una imagen recortada."""
-    try:
-        # Rechazar cookies si es necesario
-        rechazar_cookies(driver)
-
-        # Localizar el elemento canvas
-        canvas = driver.find_element(By.CSS_SELECTOR, "canvas.ol-unselectable")
-
-        # Desplazar la página hasta que el canvas sea visible
-        driver.execute_script("arguments[0].scrollIntoView(true);", canvas)
-        logging.info("Canvas desplazado a la vista.")
-
-        # Esperar un momento para asegurarnos de que todo se haya renderizado
-        time.sleep(2)
-
-        # Tomar la captura de pantalla completa como objeto binario (para no guardarla)
-        screenshot = driver.get_screenshot_as_png()
-        
-        # Abrir la captura desde los datos en memoria
-        img = Image.open(BytesIO(screenshot))
-        
-        # Obtener el tamaño de la imagen original
-        width, height = img.size
-
-        # Definir el recorte
-        left = 31
-        top = 1
-        right = width - 48
-        bottom = height - 52
-
-        # Recortar la imagen
-        img_recortada = img.crop((left, top, right, bottom))
-        img_recortada.save(output_path)
-
-        logging.info(f"Canvas capturado y guardado como {output_path}.")
-    except Exception as e:
-        logging.error("Error al extraer el canvas: %s", traceback.format_exc())
         raise
 
 def comprobar_radares(driver):
@@ -160,6 +124,9 @@ def extraer_canvas(driver):
         # Rechazar cookies si es necesario
         rechazar_cookies(driver)
 
+        # Ocultar elementos no deseados del mapa
+        ocultar_elementos(driver)
+
         # Localizar el elemento canvas
         canvas = driver.find_element(By.CSS_SELECTOR, "canvas.ol-unselectable")
 
@@ -191,7 +158,7 @@ def extraer_canvas(driver):
         # Guardamos la imagen en un buffer de memoria
         img_byte_array = BytesIO()
         img_recortada.save(img_byte_array, format="PNG")
-        img_byte_array.seek(0)  # Rewind the buffer to the beginning
+        img_byte_array.seek(0)  # Rebobinar el buffer hasta el principio
 
         logging.info("Canvas capturado y convertido en imagen en memoria.")
         return img_byte_array  # Retorna el buffer en memoria
