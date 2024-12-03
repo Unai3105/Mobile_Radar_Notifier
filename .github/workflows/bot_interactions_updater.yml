@@ -1,4 +1,4 @@
-name: Telegram MongoDB Sync
+name: Bot Interactions Updater
 
 on:
   schedule:
