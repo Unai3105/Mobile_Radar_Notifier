@@ -32,4 +32,4 @@ jobs:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       run: |
-        python mobile_radar_notifier.py
+        python telegram_radar_notifier.py
