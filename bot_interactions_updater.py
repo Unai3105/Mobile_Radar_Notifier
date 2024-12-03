@@ -2,7 +2,6 @@ from pymongo import MongoClient
 import datetime
 import requests
 import logging
-import json
 import os
 
 # Configuración básica de logging
@@ -17,9 +16,10 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 
 # Selecciona la base de datos y colección
-db = client["Mobile_Radar_Notifier"]
-collection = db["bot_interactions"]
-
+MONGO_DB = os.getenv("MONGO_DB")
+db = client[MONGO_DB]
+MONGO_COLLECTION_INTERACTIONS = os.getenv("MONGO_COLLECTION_INTERACTIONS")
+collection = db[MONGO_COLLECTION_INTERACTIONS]
 
 def obtener_interacciones():
     try:
