@@ -27,7 +27,7 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         MONGO_URI: ${{ secrets.MONGO_URI }}
-        MONGO_DB: ${( secrets.MONGO_DB )}
-        MONGO_COLLECTION_INTERACTIONS: ${( secrets.MONGO_COLLECTION_INTERACTIONS )}
+        MONGO_DB: ${{ secrets.MONGO_DB }}
+        MONGO_COLLECTION_INTERACTIONS: ${{ secrets.MONGO_COLLECTION_INTERACTIONS }}
       run: |
         python bot_interactions_updater.py
