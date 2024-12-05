@@ -209,8 +209,7 @@ def enviar_mensaje_telegram(ids_usuarios, mensaje):
             # Parámetros de la solicitud
             params = {
                 'chat_id': user_id,
-                # 'text': mensaje
-                'text': 'Mensaje de prueba'
+                'text': mensaje
             }
             
             # Hacer la solicitud POST para enviar el mensaje
