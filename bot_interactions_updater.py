@@ -17,6 +17,8 @@ client = MongoClient(MONGO_URI)
 
 # Selecciona la base de datos y colección
 MONGO_DB = os.getenv("MONGO_DB")
+logging.info(f"Nombre de la base de datos: {MONGO_DB}")
+
 db = client[MONGO_DB]
 MONGO_COLLECTION_INTERACTIONS = os.getenv("MONGO_COLLECTION_INTERACTIONS")
 collection = db[MONGO_COLLECTION_INTERACTIONS]
