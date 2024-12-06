@@ -11,6 +11,7 @@ import traceback
 import requests
 import logging
 import time
+import pytz
 import os
 
 # Configuración básica de logging
@@ -323,7 +324,7 @@ def main():
 
         # Registrar los resultados del monitoreo en MongoDB
         registrar_monitoreo_mensajes(
-            scrapping_time=datetime.now().isoformat(),
+            scrapping_time=datetime.now(pytz.UTC).isoformat(),
             has_radar=has_radar,
             locations=locations,
             message_sent=message_sent,
