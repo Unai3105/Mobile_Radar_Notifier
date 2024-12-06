@@ -34,9 +34,9 @@ jobs:
         python bot_interactions_updater.py
 
     # Paso 2: Ejecutar el script de scraping
-    - name: Run Scraping script
+    - name: Run Scraping & Sending messages script
       env:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       run: |
-        python scraping_script.py
+        python telegram_radar_notifier.py
