@@ -4,6 +4,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 from datetime import datetime
+from pymongo import MongoClient
 from io import BytesIO
 from PIL import Image
 import traceback
@@ -24,14 +25,18 @@ chrome_options.add_argument("--window-size=1920x1080")
 # URL de la página que quieres monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
 
-# Credenciales de Twilio desde variables de entorno
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
-TO_WHATSAPP_NUMBER = os.getenv("TO_WHATSAPP_NUMBER")
-
-# Token del bot de Telegram
+# Configura el token de tu bot y la URL de la API de Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+# Configura la conexión con MongoDB Atlas
+MONGO_URI = os.getenv("MONGO_URI")
+client = MongoClient(MONGO_URI)
+
+# Selecciona la base de datos y colección
+MONGO_DB = os.getenv("MONGO_DB")
+db = client[MONGO_DB]
+MONGO_COLLECTION_INTERACTIONS = "bot_interactions"
+collection = db[MONGO_COLLECTION_INTERACTIONS]
 
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
@@ -54,8 +59,7 @@ def cargar_pagina(driver, donosti_radar_web_url, max_retries=3):
             logging.warning(f"Error al cargar la página: {e}. Reintentando ({attempt + 1}/{max_retries})...")
             time.sleep(2)
     logging.error("No se pudo cargar la página después de múltiples intentos: %s", traceback.format_exc())
-    raise # Propaga el error al `main`.
-    # return False # No lanza excepción, pero avisa de fallo.
+    raise # Propaga el error al `main`
 
 def rechazar_cookies(driver):
     """Busca y cierra el aviso de cookies si está presente."""
@@ -86,7 +90,7 @@ def ocultar_elementos(driver):
         logging.info("Elementos ocultos exitosamente.")
     except Exception as e:
         logging.error(f"Error al ocultar los elementos: {e}")
-        raise
+        raise # Propaga el error al `main`
 
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve el estado como texto."""
@@ -101,14 +105,12 @@ def comprobar_radares(driver):
                 texto_parrafo = parrafo.text
 
                 if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
-                    # captura_mapa(driver)
                     logging.info("No hay radares móviles planificados para hoy.")
                     return "No hay radares móviles planificados para hoy."
 
                 elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
                     if i + 1 < len(parrafos):
                         ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
-                        # captura_mapa(driver)
                         logging.info(f"Radares móviles encontrados: {ubicaciones}")
                         return ubicaciones
 
@@ -116,7 +118,61 @@ def comprobar_radares(driver):
         return "Estado de radares desconocido."
     except Exception as e:
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
-        raise  # Propaga el error al `main`.
+        raise # Propaga el error al `main`
+
+def obtener_ids_usuarios():
+    """Obtiene los IDs de los usuarios que han interactuado con el bot."""
+    try:
+        # Buscar todos los documentos en la colección bot_interactions
+        usuarios = collection.find({})
+
+        # Extraer los chat_id de los usuarios
+        ids = []
+        for usuario in usuarios:
+            chat_id = usuario.get('chat_id')
+            if chat_id:
+                ids.append(chat_id)
+
+        logging.info(f"IDs de usuarios obtenidos desde MongoDB: {ids}")
+        return ids
+    except Exception as e:
+        logging.error("Error al obtener los IDs de los usuarios desde MongoDB: %s", e)
+        raise # Propaga el error al `main`
+
+def enviar_mensaje_telegram(ids_usuarios, estado_radar, ubicaciones=None):
+    """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
+    try:
+        for user_id in ids_usuarios:
+            if estado_radar == "No hay radares móviles planificados para hoy.":
+                mensaje = estado_radar
+            else:
+                # Construir el mensaje de ubicaciones de radares
+                mensaje = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
+                ubicaciones = ['Paseo de la Fe', 'Paseo de Oriamendi', 'Paseo de la Concha']
+                for i, ubicacion in enumerate(ubicaciones, 1):
+                    mensaje += f"   •  *{ubicacion}*\n"
+                mensaje += "\n🚗💨 ¡Cuidado con los naranjitos! 🚓"
+
+            # Construir la URL de la API de Telegram para enviar el mensaje
+            sendMessage_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            
+            # Parámetros de la solicitud
+            params = {
+                'chat_id': user_id,
+                'text': mensaje,
+                'parse_mode': 'Markdown'
+            }
+            
+            # Hacer la solicitud POST para enviar el mensaje
+            response = requests.post(sendMessage_url, data=params)
+            
+            if response.status_code == 200:
+                logging.info(f"Mensaje enviado correctamente a {user_id}")
+            else:
+                logging.error(f"Error al enviar el mensaje a {user_id}: {response.status_code}")
+    except Exception as e:
+        logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
+        raise # Propaga el error al `main`
 
 def extraer_canvas(driver):
     """Extrae el contenido del canvas de la página y lo devuelve como un objeto de imagen en memoria."""
@@ -164,64 +220,7 @@ def extraer_canvas(driver):
         return img_byte_array  # Retorna el buffer en memoria
     except Exception as e:
         logging.error("Error al extraer el canvas: %s", traceback.format_exc())
-        raise
-
-def obtener_ids_usuarios():
-    """Obtiene los IDs de los usuarios que han interactuado con el bot."""
-    try:
-        # Hacer una solicitud GET a la API de Telegram para obtener los updates
-        response = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates")
-        
-        # Comprobar si la solicitud fue exitosa
-        if response.status_code == 200:
-            updates = response.json()
-
-            # Si hay resultados, extraemos los IDs de los usuarios
-            if updates.get('result'):
-                ids = []
-                for update in updates['result']:
-                    # Verificamos que haya un mensaje y extraemos el ID del usuario
-                    if 'message' in update and 'from' in update['message']:
-                        user_id = update['message']['from']['id']
-                        if user_id not in ids:
-                            ids.append(user_id)
-
-                logging.info(f"IDs de usuarios obtenidos: {ids}")
-                return ids
-            else:
-                logging.info("No hay interacciones recientes.")
-                return []
-        else:
-            logging.error("Error al realizar la solicitud a la API de Telegram: %s", response.status_code)
-            return []
-    
-    except Exception as e:
-        logging.error("Error al obtener los IDs de los usuarios: %s", traceback.format_exc())
-        raise  # Propaga el error para manejo en `main`
-
-def enviar_mensaje_telegram(ids_usuarios, mensaje):
-    """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
-    try:
-        for user_id in ids_usuarios:
-            # Construir la URL de la API de Telegram para enviar el mensaje
-            sendMessage_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            
-            # Parámetros de la solicitud
-            params = {
-                'chat_id': user_id,
-                'text': mensaje
-            }
-            
-            # Hacer la solicitud POST para enviar el mensaje
-            response = requests.post(sendMessage_url, data=params)
-            
-            if response.status_code == 200:
-                logging.info(f"Mensaje enviado correctamente a {user_id}")
-            else:
-                logging.error(f"Error al enviar el mensaje a {user_id}: {response.status_code}")
-    except Exception as e:
-        logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
-        raise  # Propaga el error para manejo en `main`
+        raise # Propaga el error al `main`
 
 def enviar_imagen_telegram(ids_usuarios, img_byte_array):
     """Envía la imagen (como archivo) a los usuarios obtenidos."""
@@ -249,7 +248,7 @@ def enviar_imagen_telegram(ids_usuarios, img_byte_array):
                 logging.error(f"Error al enviar la imagen a {user_id}: {response.status_code}")
     except Exception as e:
         logging.error("Error al enviar las imágenes de Telegram: %s", traceback.format_exc())
-        raise  # Propaga el error para manejo en `main`
+        raise # Propaga el error al `main`
 
 def main():
     """Función principal que inicializa el driver, carga la página, verifica el estado y envía el mensaje por WhatsApp."""
