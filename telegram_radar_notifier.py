@@ -32,11 +32,16 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 
-# Selecciona la base de datos y colección
+# Selecciona la base de datos y colecciones
 MONGO_DB = os.getenv("MONGO_DB")
 db = client[MONGO_DB]
-MONGO_COLLECTION_INTERACTIONS = "bot_interactions"
-collection = db[MONGO_COLLECTION_INTERACTIONS]
+
+MONGO_COLLECTION_INTERACTIONS = os.getenv("MONGO_COLLECTION_INTERACTIONS")
+collection_interactions = db[MONGO_COLLECTION_INTERACTIONS]
+
+MONGO_COLLECTION_REPORTS = os.getenv("MONGO_COLLECTION_REPORTS")
+collection_reports = db[MONGO_COLLECTION_REPORTS]
+
 
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
@@ -74,6 +79,7 @@ def rechazar_cookies(driver):
 
 def ocultar_elementos(driver):
     """Oculta los elementos no deseados en la página."""
+    
     try:
         # Buscar el div de las capas base y ocultarlo
         base_layer_element = driver.find_element(By.ID, "SimpleBaseLayerSelectPlugin_c")
@@ -124,7 +130,7 @@ def obtener_ids_usuarios():
     """Obtiene los IDs de los usuarios que han interactuado con el bot."""
     try:
         # Buscar todos los documentos en la colección bot_interactions
-        usuarios = collection.find({})
+        usuarios = collection_interactions.find({})
 
         # Extraer los chat_id de los usuarios
         ids = []
@@ -139,39 +145,69 @@ def obtener_ids_usuarios():
         logging.error("Error al obtener los IDs de los usuarios desde MongoDB: %s", e)
         raise # Propaga el error al `main`
 
-def enviar_mensaje_telegram(ids_usuarios, estado_radar, ubicaciones=None):
+def enviar_mensaje_telegram(ids_usuarios, estado_radar, locations=None):
     """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
-    try:
-        for user_id in ids_usuarios:
-            if estado_radar == "No hay radares móviles planificados para hoy.":
-                mensaje = estado_radar
-            else:
-                # Construir el mensaje de ubicaciones de radares
-                mensaje = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
-                
-                for i, ubicacion in enumerate(ubicaciones, 1):
-                    mensaje += f"   •  *{ubicacion}*\n"
-                mensaje += "\n🚗💨 ¡Cuidado con los naranjitos! 🚓"
 
-            # Construir la URL de la API de Telegram para enviar el mensaje
+    # Lista para almacenar los chat_ids a los que se envía el mensaje
+    ids_sent = []
+
+    if estado_radar == "No hay radares móviles planificados para hoy.":
+        has_radar = True
+    else:
+        has_radar = False
+
+    try:
+
+        # Construir el mensaje basado en los resultados del scraping
+        if not has_radar:
+            message_sent = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
+            for loc in locations:
+                message_sent += f"   •  *{loc}*\n"
+            message_sent += "\n🚗💨 ¡Cuidado con los naranjitos! 🚓"
+        else:
+            message_sent = "No hay radares móviles planificados para hoy."
+
+        # Enviar el mensaje a cada usuario
+        for user_id in ids_usuarios:
             sendMessage_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            
-            # Parámetros de la solicitud
             params = {
                 'chat_id': user_id,
-                'text': mensaje,
+                'text': message_sent,
                 'parse_mode': 'Markdown'
             }
-            
-            # Hacer la solicitud POST para enviar el mensaje
+
             response = requests.post(sendMessage_url, data=params)
-            
             if response.status_code == 200:
                 logging.info(f"Mensaje enviado correctamente a {user_id}")
+                ids_sent.append(user_id)  # Añadir a la lista de enviados
             else:
                 logging.error(f"Error al enviar el mensaje a {user_id}: {response.status_code}")
+
     except Exception as e:
         logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
+        raise # Propaga el error al `main`
+
+    return has_radar, locations, message_sent, ids_sent
+
+def registrar_monitoreo_mensajes(scrapping_time, has_radar, locations, message_sent, ids_sent):
+    """Registra en MongoDB el monitoreo de los mensajes enviados tras el scraping."""
+    try:
+
+        # Documento a insertar
+        documento = {
+            "scrapping_time": scrapping_time,
+            "has_radar": has_radar,
+            "locations": locations,
+            "message_sent": message_sent,
+            "ids_sent": ids_sent,
+        }
+
+        # Inserta el documento
+        result = collection_reports.insert_one(documento)
+        logging.info(f"Monitoreo del scrapping realizada correctamente con ID: {result.inserted_id}")
+
+    except Exception as e:
+        logging.error("Error al registrar el monitoreo en MongoDB: %s", traceback.format_exc())
         raise # Propaga el error al `main`
 
 def extraer_canvas(driver):
@@ -263,12 +299,19 @@ def main():
         estado_radar = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        ids_usuarios = obtener_ids_usuarios()
-        
-        if ids_usuarios:
+        # ids_usuarios = obtener_ids_usuarios()
 
+        ids_usuarios = [632062529]
+
+        # Inicializar variables para el monitoreo
+        has_radar = None
+        locations = []
+        message_sent = ""
+        ids_sent = []
+
+        if ids_usuarios:
             # Enviar la información de los radares a todos los usuarios
-            enviar_mensaje_telegram(ids_usuarios, estado_radar)
+            has_radar, locations, message_sent, ids_sent = enviar_mensaje_telegram(ids_usuarios, estado_radar)
 
             if estado_radar != "No hay radares móviles planificados para hoy.":
                 # Extraer imagen del mapa de los radares
@@ -279,6 +322,15 @@ def main():
 
         else:
             logging.info("No hay usuarios a los que enviar el mensaje.")
+
+        # Registrar los resultados del monitoreo en MongoDB
+        registrar_monitoreo_mensajes(
+            scrapping_time=datetime.now().isoformat(),
+            has_radar=has_radar,
+            locations=locations,
+            message_sent=message_sent,
+            ids_sent=ids_sent,
+            )
 
     # Cerrar el driver
     if driver:
