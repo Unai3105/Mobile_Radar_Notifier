@@ -299,9 +299,7 @@ def main():
         estado_radar = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        # ids_usuarios = obtener_ids_usuarios()
-
-        ids_usuarios = [632062529]
+        ids_usuarios = obtener_ids_usuarios()
 
         # Inicializar variables para el monitoreo
         has_radar = None
