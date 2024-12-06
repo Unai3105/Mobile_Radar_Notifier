@@ -143,12 +143,12 @@ def enviar_mensaje_telegram(ids_usuarios, estado_radar, ubicaciones=None):
     """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
     try:
         for user_id in ids_usuarios:
-            if estado_radar != "No hay radares móviles planificados para hoy.":
+            if estado_radar == "No hay radares móviles planificados para hoy.":
                 mensaje = estado_radar
             else:
                 # Construir el mensaje de ubicaciones de radares
                 mensaje = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
-                ubicaciones = ['Paseo de la Fe', 'Paseo de Oriamendi', 'Paseo de la Concha']
+                
                 for i, ubicacion in enumerate(ubicaciones, 1):
                     mensaje += f"   •  *{ubicacion}*\n"
                 mensaje += "\n🚗💨 ¡Cuidado con los naranjitos! 🚓"
@@ -263,14 +263,14 @@ def main():
         estado_radar = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-       # ids_usuarios = obtener_ids_usuarios()
-        ids_usuarios = [632062529]
+        ids_usuarios = obtener_ids_usuarios()
+        
         if ids_usuarios:
 
             # Enviar la información de los radares a todos los usuarios
             enviar_mensaje_telegram(ids_usuarios, estado_radar)
 
-            if estado_radar == "No hay radares móviles planificados para hoy.":
+            if estado_radar != "No hay radares móviles planificados para hoy.":
                 # Extraer imagen del mapa de los radares
                 img_byte_array = extraer_canvas(driver)
 
