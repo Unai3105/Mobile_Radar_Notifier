@@ -38,5 +38,8 @@ jobs:
       env:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        MONGO_URI: ${{ secrets.MONGO_URI }}
+        MONGO_DB: ${{ secrets.MONGO_DB }}
+        MONGO_COLLECTION_INTERACTIONS: ${{ secrets.MONGO_COLLECTION_INTERACTIONS }}
       run: |
         python telegram_radar_notifier.py
