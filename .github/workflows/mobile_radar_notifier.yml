@@ -33,7 +33,7 @@ jobs:
       run: |
         python bot_interactions_updater.py
 
-    # Paso 2: Ejecutar el script de scraping
+    # Paso 2: Ejecutar el script de scraping y envío de mensajes
     - name: Run Scraping & Sending messages script
       env:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
