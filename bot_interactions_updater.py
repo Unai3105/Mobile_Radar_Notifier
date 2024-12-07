@@ -177,7 +177,7 @@ def main():
         # Paso 3: Guardar las interacciones transformadas en MongoDB
         guardar_interacciones_en_bd(chats_transformados)
     else:
-        logging.warning("No se han obtenido interacciones de Telegram.")
+        logging.warning("No se han obtenido nuevas interacciones de Telegram.")
 
 if __name__ == '__main__':
     main()
