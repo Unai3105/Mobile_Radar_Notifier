@@ -146,23 +146,23 @@ def obtener_ids_usuarios():
         logging.error("Error al obtener los IDs de los usuarios desde MongoDB: %s", e)
         raise # Propaga el error al `main`
 
-def enviar_mensaje_telegram(ids_usuarios, estado_radar, locations=None):
+def enviar_mensaje_telegram(ids_usuarios, estado_radar):
     """Envía el mensaje con la información de los radares a todos los usuarios obtenidos."""
 
     # Lista para almacenar los chat_ids a los que se envía el mensaje
     ids_sent = []
 
     if estado_radar == "No hay radares móviles planificados para hoy.":
-        has_radar = True
-    else:
         has_radar = False
+    else:
+        has_radar = True
 
     try:
 
         # Construir el mensaje basado en los resultados del scraping
-        if not has_radar:
+        if has_radar:
             message_sent = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
-            for loc in locations:
+            for loc in estado_radar:
                 message_sent += f"   •  *{loc}*\n"
             message_sent += "\n🚗💨 ¡Cuidado con los naranjitos! 🚓"
         else:
@@ -188,7 +188,7 @@ def enviar_mensaje_telegram(ids_usuarios, estado_radar, locations=None):
         logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
         raise # Propaga el error al `main`
 
-    return has_radar, locations, message_sent, ids_sent
+    return has_radar, estado_radar, message_sent, ids_sent
 
 def registrar_monitoreo_mensajes(scrapping_time, has_radar, locations, message_sent, ids_sent):
     """Registra en MongoDB el monitoreo de los mensajes enviados tras el scraping."""
