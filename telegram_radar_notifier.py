@@ -1,4 +1,4 @@
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
@@ -113,63 +113,48 @@ def ocultar_elementos(driver):
         raise # Propaga el error al `main`
 
 def comprobar_radares(driver):
-    """Verifica si hay radares móviles planificados para hoy y devuelve las ubicaciones (vacías si no hay)."""
+    """Función para comprobar si hay radares activos en la página."""
+    
+    logging.info("Iniciando la comprobación de radares...")
+    
     try:
-        # Obtener la fecha actual en formato 'dd/mm/yyyy'
-        fecha_actual = datetime.now().strftime("%d/%m/%Y")
+        # Intentar obtener la página
+        driver.get('URL_DE_LA_PAGINA_DE_RADARES')
+        
+        # Mostrar el HTML de la página por si ocurre algún error
+        logging.debug("Contenido de la página: %s", driver.page_source)
 
-        # Esperar explícitamente a que los elementos con la clase "span12" estén presentes en el DOM
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
-        )
-
-        # Buscar todos los elementos con la clase "span12"
-        elementos_span12 = driver.find_elements(By.CLASS_NAME, "span12")
-
-        # Inicializar una lista vacía para las ubicaciones
-        ubicaciones = []
-
-        # Iterar sobre los elementos encontrados
-        for elemento in elementos_span12:
-            # Esperar a que los párrafos dentro de cada "span12" estén presentes
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.TAG_NAME, "p"))
-            )
+        # Buscar el contenedor de los radares
+        try:
+            parrafos = driver.find_elements_by_xpath("//xpath_del_elemento_del_radar")
+            logging.info(f"Se encontraron {len(parrafos)} elementos de radar.")
             
-            # Obtener los párrafos (siempre dentro del bucle, para evitar StaleElementReferenceException)
-            parrafos = elemento.find_elements(By.TAG_NAME, "p")
+            if parrafos:
+                locations = []
+                for parrafo in parrafos:
+                    try:
+                        # Intentar acceder al texto del elemento
+                        texto_parrafo = parrafo.text
+                        logging.info(f"Texto del radar encontrado: {texto_parrafo}")
+                        locations.append(texto_parrafo)
+                    except StaleElementReferenceException:
+                        logging.warning("Elemento obsoleto, se volverá a intentar.")
+                    except Exception as e:
+                        logging.error("Error al acceder al texto del elemento: %s", str(e))
 
-            # Buscar en cada párrafo si hay radares planificados o no
-            for i, parrafo in enumerate(parrafos):
-                try:
-                    texto_parrafo = parrafo.text
-
-                    # Caso en que no hay radares para hoy
-                    if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
-                        logging.info("No hay radares móviles planificados para hoy.")
-                        return ubicaciones  # Retornar lista vacía
-
-                    # Caso en que hay radares planificados para hoy
-                    elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
-                        # Verificar si hay al menos un párrafo siguiente para evitar IndexError
-                        if i + 1 < len(parrafos):
-                            # Obtener las ubicaciones de los radares y agregar a la lista
-                            ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
-                            logging.info(f"Radares móviles encontrados: {ubicaciones}")
-                            return ubicaciones  # Retornar las ubicaciones encontradas
-
-                except StaleElementReferenceException:
-                    # Si el elemento se vuelve obsoleto, simplemente continuar y buscar de nuevo los elementos
-                    logging.warning("Elemento obsoleto, se volverá a intentar.")
-                    continue
-
-        # Si no se encontró nada relevante, retornar lista vacía
-        logging.warning("Estado de radares desconocido o no planificado.")
-        return None  # Retornar lista vacía si no se encontraron radares
-         
+                # Si no se encontraron ubicaciones, registrar advertencia
+                if not locations:
+                    logging.warning("Estado de radares desconocido o no planificado.")
+                return locations
+            else:
+                logging.warning("No se encontraron elementos de radar.")
+                return None
+        except NoSuchElementException as e:
+            logging.error("No se pudo encontrar el contenedor de los radares en la página: %s", str(e))
+            return None
     except Exception as e:
-        logging.error("Error al comprobar los radares: %s", traceback.format_exc())
-        raise  # Propaga el error al `main`
+        logging.error("Error al comprobar los radares: %s", str(e))
+        raise
 
 def extraer_canvas(driver):
     """Extrae el contenido del canvas de la página y lo devuelve como un objeto de imagen en memoria."""
