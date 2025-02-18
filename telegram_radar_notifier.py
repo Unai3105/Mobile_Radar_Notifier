@@ -19,16 +19,16 @@ import os
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Opciones avanzadas de Chrome
+# Configurar las opciones de Chrome
 chrome_options = Options()
-# Si deseas ver la ejecución, elimina el modo headless
-# chrome_options.add_argument("--headless")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--window-size=1920x1080")
+chrome_options.add_argument("--headless")  # Ejecutar en modo sin cabeza
+chrome_options.add_argument("--disable-gpu")  # Deshabilitar GPU si estás en un entorno sin pantalla
 
-driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
+# Crear el servicio del WebDriver
+service = Service(ChromeDriverManager().install())
+
+# Inicializar el driver de Chrome con el servicio y las opciones
+driver = webdriver.Chrome(service=service, options=chrome_options)
 
 # URL de la página a monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
