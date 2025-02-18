@@ -237,8 +237,10 @@ def enviar_mensaje_telegram(ids_usuarios, has_radar, locations):
     ids_error = []
 
     try:
-        # Construir el mensaje
-        if has_radar:
+        # Verificar si locations es None (error en la obtención de radares)
+        if locations is None:
+            message_sent = "⚠️ *Error al obtener información de los radares.*\n\n🚨 No se pudo verificar si hay radares móviles."
+        elif has_radar:
             # Mensaje para radares encontrados
             message_sent = "🚨 El radar móvil estará operando en las siguientes ubicaciones:\n\n"
             message_sent += "\n".join([f"   •  *{loc}*" for loc in locations])
