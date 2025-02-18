@@ -7,9 +7,10 @@ import os
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Configura el token de tu bot y la URL de la API de Telegram
+# Configura el token de tu bot
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-UPDATES_URL = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates'
+GET_UPDATES_URL = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates'
+GET_CHAT_MEMBER_URL = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/getChatMember'
 
 # Configura la conexión con MongoDB Atlas
 MONGO_URI = os.getenv("MONGO_URI")
@@ -24,11 +25,9 @@ collection = db[MONGO_COLLECTION_INTERACTIONS]
 def obtener_interacciones():
     try:
         logging.info("Iniciando la solicitud a la API de Telegram...")
-        # Realiza la solicitud a la API de Telegram para obtener las interacciones
-        response = requests.get(UPDATES_URL)
+        response = requests.get(GET_UPDATES_URL)
         data = response.json()
 
-        # Verifica si la respuesta contiene resultados
         if data.get('ok'):
             logging.info(f"Se han obtenido {len(data['result'])} interacciones.")
             return data['result']
@@ -39,7 +38,28 @@ def obtener_interacciones():
     except Exception as e:
         logging.error(f"Error en la solicitud HTTP: {e}")
         raise  # Vuelve a lanzar la excepción para propagar el error
-    
+
+def obtener_estado_usuario(chat_id):
+    """
+    Verifica si el usuario está activo o ha dejado el bot.
+    """
+    try:
+        url = f"{GET_CHAT_MEMBER_URL}?chat_id={chat_id}&user_id={chat_id}"
+        response = requests.get(url)
+        data = response.json()
+        
+        if data.get('ok'):
+            # Si el estado es "left", significa que el usuario ha dejado el bot
+            if data['result']['status'] == 'left':
+                return False
+            return True
+        else:
+            logging.error(f"Error al obtener estado del usuario {chat_id}: {data}")
+            return True  # Si no se puede obtener el estado, asumimos que está activo
+    except Exception as e:
+        logging.error(f"Error al verificar estado del usuario {chat_id}: {e}")
+        return True  # En caso de error, asumimos que está activo
+
 def transformar_a_estructura_mongo(interacciones):
     try:
         chats = []
@@ -47,8 +67,7 @@ def transformar_a_estructura_mongo(interacciones):
 
         for interaccion in interacciones:
             mensaje = interaccion.get('message', {})
-            
-            # Si el mensaje tiene un chat, lo procesamos
+
             if mensaje:
                 chat_id = mensaje['chat']['id']
                 first_name = mensaje['chat'].get('first_name', '')
@@ -65,6 +84,7 @@ def transformar_a_estructura_mongo(interacciones):
                         "first_name": first_name,
                         "username": username,
                         "chat_type": chat_type,
+                        "active": True,  # Inicialmente está activo
                         "messages": []
                     }
                     chats.append(chat)
@@ -78,7 +98,7 @@ def transformar_a_estructura_mongo(interacciones):
                     "entities": []
                 })
 
-                # Comprobamos si el mensaje tiene entidades (comandos)
+                # Verificamos si el mensaje tiene entidades (comandos)
                 if 'entities' in mensaje:
                     for entity in mensaje['entities']:
                         if entity['type'] == 'bot_command':
@@ -95,14 +115,9 @@ def transformar_a_estructura_mongo(interacciones):
         logging.error(f"Error al transformar las interacciones: {e}")
         raise  # Propaga el error
 
-
 def guardar_interacciones_en_bd(interacciones):
-    """
-    Guarda las interacciones del bot en la base de datos de MongoDB, evitando duplicados.
-    """
     logging.info("Guardando interacciones en la base de datos...")
     for interaction in interacciones:
-        # Comprobamos si el mensaje tiene el ID y el texto
         mensaje = interaction.get("messages", [])
         if not mensaje:
             logging.warning("Interacción sin mensajes, omitiendo.")
@@ -116,10 +131,9 @@ def guardar_interacciones_en_bd(interacciones):
 
             chat_id = interaction.get("chat_id")
 
-            # Verifica si el chat ya existe en la base de datos
+            # Verificar si el chat ya existe en la base de datos
             chat_document = collection.find_one({"chat_id": chat_id})
-            
-            # Si el chat no existe, lo creamos con el primer mensaje
+
             if not chat_document:
                 logging.info(f"Nuevo chat con ID {chat_id}, creando un nuevo documento.")
                 collection.insert_one({
@@ -127,26 +141,41 @@ def guardar_interacciones_en_bd(interacciones):
                     "first_name": interaction.get("first_name", ""),
                     "username": interaction.get("username", ""),
                     "chat_type": interaction.get("chat_type", ""),
+                    "active": True,  # Inicialmente está activo
                     "messages": [
                         {
                             "message_id": message_id,
                             "date": datetime.datetime.utcfromtimestamp(msg["date"]),
                             "text": msg["text"],
-                            "command": msg.get("command", ""),  # Agregar comando
-                            "entities": msg.get("entities", [])  # Agregar entidades
+                            "command": msg.get("command", ""),
+                            "entities": msg.get("entities", [])
                         }
                     ]
                 })
                 logging.info(f"Chat con ID {chat_id} añadido a la base de datos.")
-            
+
             else:
-                # Si el chat ya existe, verificamos si el mensaje ya fue guardado
+                # Comprobamos si el usuario está activo
+                if not obtener_estado_usuario(chat_id):
+                    # Si el usuario ha dejado el bot, lo marcamos como inactivo
+                    logging.info(f"Usuario con ID {chat_id} ha dejado el bot, actualizando estado a inactivo.")
+                    collection.update_one(
+                        {"chat_id": chat_id},
+                        {"$set": {"active": False}}
+                    )
+                else:
+                    # Si el usuario está activo, aseguramos que esté marcado como tal
+                    collection.update_one(
+                        {"chat_id": chat_id},
+                        {"$set": {"active": True}}
+                    )
+
+                # Verificamos si el mensaje ya existe en el chat
                 existing_message = collection.find_one(
                     {"chat_id": chat_id, "messages.message_id": message_id}
                 )
                 
                 if not existing_message:
-                    # Si el mensaje no existe, lo agregamos a la lista de mensajes
                     logging.info(f"Nuevo mensaje del chat {chat_id}, añadiéndolo a la base de datos.")
                     collection.update_one(
                         {"chat_id": chat_id},
@@ -156,8 +185,8 @@ def guardar_interacciones_en_bd(interacciones):
                                     "message_id": message_id,
                                     "date": datetime.datetime.utcfromtimestamp(msg["date"]),
                                     "text": msg["text"],
-                                    "command": msg.get("command", ""),  # Agregar comando
-                                    "entities": msg.get("entities", [])  # Agregar entidades
+                                    "command": msg.get("command", ""),
+                                    "entities": msg.get("entities", [])
                                 }
                             }
                         }
@@ -167,14 +196,10 @@ def guardar_interacciones_en_bd(interacciones):
                     logging.info(f"El mensaje con ID {message_id} ya existe en el chat {chat_id}, omitiendo.")
 
 def main():
-    # Paso 1: Obtener las interacciones de la API de Telegram
     interacciones = obtener_interacciones()
 
     if interacciones:
-        # Paso 2: Transformar las interacciones a la estructura adecuada para MongoDB
         chats_transformados = transformar_a_estructura_mongo(interacciones)
-
-        # Paso 3: Guardar las interacciones transformadas en MongoDB
         guardar_interacciones_en_bd(chats_transformados)
     else:
         logging.warning("No se han obtenido nuevas interacciones de Telegram.")
