@@ -23,18 +23,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Paso 1: Instalar Google Chrome
-    - name: Install Google Chrome
-      run: |
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        sudo apt install ./google-chrome-stable_current_amd64.deb
-
-    # Paso 2: Usar webdriver-manager para instalar ChromeDriver automáticamente
-    - name: Install ChromeDriver using webdriver-manager
-      run: |
-        python -m webdriver_manager.chrome
-
-    # Paso 3: Ejecutar el script de sincronización de interacciones de Telegram a MongoDB
+    # Paso 1: Ejecutar el script de sincronización de interacciones de Telegram a MongoDB
     - name: Run Telegram to MongoDB sync script
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -44,7 +33,7 @@ jobs:
       run: |
         python bot_interactions_updater.py
 
-    # Paso 4: Ejecutar el script de scraping y envío de mensajes
+    # Paso 2: Ejecutar el script de scraping y envío de mensajes
     - name: Run Scraping & Sending messages script
       env:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
