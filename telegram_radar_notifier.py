@@ -21,14 +21,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Opciones avanzadas de Chrome
 chrome_options = Options()
-chrome_options.add_argument("--headless")
+# Si deseas ver la ejecución, elimina el modo headless
+# chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--window-size=1920x1080")
 
-# Habilitar logs detallados
-chrome_options.add_argument("--enable-logging")
-chrome_options.add_argument("--v=1")
+driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
 # URL de la página a monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
