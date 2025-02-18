@@ -43,11 +43,8 @@ jobs:
         MONGO_COLLECTION_INTERACTIONS: ${{ secrets.MONGO_COLLECTION_INTERACTIONS }}
         MONGO_COLLECTION_REPORTS: ${{ secrets.MONGO_COLLECTION_REPORTS }}
       run: |
-        # Forzar una versión compatible de ChromeDriver
-        VERSION=132.0.6834.159
-        wget https://chromedriver.storage.googleapis.com/${VERSION}/chromedriver_linux64.zip
-        unzip chromedriver_linux64.zip
-        mv chromedriver /usr/local/bin/chromedriver
-        chmod +x /usr/local/bin/chromedriver
-        
+        # Usar webdriver-manager para gestionar el driver
+        python -m pip install webdriver-manager
+
+        # Ejecutar el script
         python telegram_radar_notifier.py
