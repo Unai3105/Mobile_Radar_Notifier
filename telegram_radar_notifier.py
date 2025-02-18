@@ -22,8 +22,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Opciones avanzadas de Chrome
 chrome_options = Options()
 chrome_options.add_argument("--headless")
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--window-size=1920x1080")
+
+# Habilitar logs detallados
+chrome_options.add_argument("--enable-logging")
+chrome_options.add_argument("--v=1")
 
 # URL de la página a monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
@@ -113,6 +118,7 @@ def ocultar_elementos(driver):
 
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve las ubicaciones (vacías si no hay)."""
+    driver.get("https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm&idioma=cas&id=A434305381910")
     try:
         # Obtener la fecha actual en formato 'dd/mm/yyyy'
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
