@@ -27,7 +27,7 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920x1080")
 
 # URL de la página a monitorear
-donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
+donosti_radar_web_url = "https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm&idioma=cas&id=A434305381910"
 
 # Configuración del token de tu bot y la URL de la API de Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
