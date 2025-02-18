@@ -33,7 +33,19 @@ jobs:
       run: |
         python bot_interactions_updater.py
 
-    # Paso 2: Ejecutar el script de scraping y envío de mensajes
+    # Paso 2: Verificar la versión de Google Chrome en GitHub Actions
+    - name: Check Chrome version
+      run: google-chrome --version
+
+    # Paso 3: Forzar la instalación de la versión de ChromeDriver correcta (la misma que en local)
+    - name: Install specific ChromeDriver version (132.0.6834.159)
+      run: |
+        VERSION=132.0.6834.159
+        wget https://chromedriver.storage.googleapis.com/$VERSION/chromedriver_linux64.zip
+        unzip chromedriver_linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+
+    # Paso 4: Ejecutar el script de scraping y envío de mensajes
     - name: Run Scraping & Sending messages script
       env:
         DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
