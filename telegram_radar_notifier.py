@@ -257,6 +257,9 @@ def enviar_mensaje_telegram(ids_usuarios, has_radar, locations):
                     'parse_mode': 'Markdown'
                 }
 
+                if has_radar:
+                    return 
+                    
                 # Enviar el mensaje
                 response = session.post(SEND_MESSAGE_URL, data=params)
 
