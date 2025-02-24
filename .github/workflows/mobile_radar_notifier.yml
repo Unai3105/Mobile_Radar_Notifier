@@ -37,19 +37,20 @@ jobs:
           libgbm1 \
           xdg-utils
 
-    # Paso: Descargar e instalar la versión correcta de Google Chrome (133.0.6943.127)
-    - name: Install specific Google Chrome version 133.0.6943.127
+    # Paso: Descargar e instalar Google Chrome 133.0.6943.126
+    - name: Install specific Google Chrome version 133.0.6943.126
       run: |
-        VERSION=133.0.6943.127
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O google-chrome.deb
-        sudo dpkg -i google-chrome.deb
-        sudo apt-get -f install
-
+        VERSION=133.0.6943.126
+        wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
+        unzip chrome-linux64.zip
+        sudo mv chrome-linux64/chrome /usr/local/bin/google-chrome
+        sudo chmod +x /usr/local/bin/google-chrome
+    
     # Paso: Descargar e instalar Chromedriver 133.0.6943.126
     - name: Install chromedriver 133.0.6943.126
       run: |
         VERSION=133.0.6943.126
-        wget https://storage.googleapis.com/chrome-for-testing-public/133.0.6943.126/linux64/https://storage.googleapis.com/chrome-for-testing-public/133.0.6943.53/linux64/chromedriver-linux64.zip
+        wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
         unzip chromedriver-linux64.zip
         sudo mv chromedriver /usr/local/bin/
         sudo chmod +x /usr/local/bin/chromedriver
