@@ -37,8 +37,8 @@ jobs:
     #    sudo mv chromedriver /usr/local/bin/
     #    sudo chmod +x /usr/local/bin/chromedriver
 
-    - name: Check Chrome version
-      run: google-chrome --version
+    #- name: Check Chrome version
+    #  run: google-chrome --version
 
     #- name: Check ChromeDriver version
     #  run: chromedriver --version
