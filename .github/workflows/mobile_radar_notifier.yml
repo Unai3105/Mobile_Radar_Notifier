@@ -23,6 +23,38 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    # Paso: Instalar dependencias necesarias para Google Chrome
+    - name: Install dependencies for Google Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libxss1 \
+          libappindicator3-1 \
+          libindicator3-7 \
+          fonts-liberation \
+          libnss3 \
+          libgdk-pixbuf2.0-0 \
+          libgbm1 \
+          xdg-utils
+
+    # Paso: Descargar e instalar la versión correcta de Google Chrome (133.0.6943.127)
+    - name: Install specific Google Chrome version 133.0.6943.127
+      run: |
+        VERSION=133.0.6943.127
+        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O google-chrome.deb
+        sudo dpkg -i google-chrome.deb
+        sudo apt-get -f install
+
+    # Paso: Descargar e instalar Chromedriver 133.0.6943.126
+    - name: Install chromedriver 133.0.6943.126
+      run: |
+        VERSION=133.0.6943.126
+        wget https://chromedriver.storage.googleapis.com/$VERSION/chromedriver-linux64.zip
+        unzip chromedriver-linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+
+    # Paso: Verificar la versión de Google Chrome instalada
     - name: Check Chrome version
       run: google-chrome --version
 
