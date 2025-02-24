@@ -49,7 +49,7 @@ jobs:
     - name: Install chromedriver 133.0.6943.126
       run: |
         VERSION=133.0.6943.126
-        wget https://chromedriver.storage.googleapis.com/133.0.6943.126/chromedriver-linux64.zip
+        wget https://storage.googleapis.com/chrome-for-testing-public/133.0.6943.126/linux64/https://storage.googleapis.com/chrome-for-testing-public/133.0.6943.53/linux64/chromedriver-linux64.zip
         unzip chromedriver-linux64.zip
         sudo mv chromedriver /usr/local/bin/
         sudo chmod +x /usr/local/bin/chromedriver
