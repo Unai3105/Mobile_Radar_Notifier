@@ -12,6 +12,8 @@ from PIL import Image
 import traceback
 import requests
 import logging
+import tempfile
+import shutil
 import time
 import pytz
 import os
@@ -19,10 +21,15 @@ import os
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Configurar las opciones de Chrome
-chrome_options = Options()
-chrome_options.add_argument("--headless")  # Ejecutar en modo sin cabeza
-chrome_options.add_argument("--disable-gpu")  # Deshabilitar GPU si estás en un entorno sin pantalla
+# Crear un directorio temporal único para el perfil de usuario
+user_data_dir = tempfile.mkdtemp()
+
+chrome_options = webdriver.ChromeOptions()
+chrome_options.add_argument(f"user-data-dir={user_data_dir}")  # Usar un directorio temporal
+chrome_options.add_argument("--headless")  # Si no necesitas navegador visible
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--disable-gpu")
 
 # Crear el servicio del WebDriver
 service = Service(ChromeDriverManager().install())
