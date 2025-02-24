@@ -117,6 +117,11 @@ def comprobar_radares(driver):
         # Obtener la fecha actual en formato 'dd/mm/yyyy'
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
 
+        # Esperar explícitamente a que los elementos con la clase "span12" estén presentes en el DOM
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
+        )
+
         # Buscar todos los elementos con la clase "span12"
         elementos_span12 = driver.find_elements(By.CLASS_NAME, "span12")
 
@@ -125,12 +130,19 @@ def comprobar_radares(driver):
 
         # Iterar sobre los elementos encontrados
         for elemento in elementos_span12:
+            # Esperar a que los párrafos dentro de cada "span12" estén presentes
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.TAG_NAME, "p"))
+            )
+            
             # Obtener los párrafos
             parrafos = elemento.find_elements(By.TAG_NAME, "p")
 
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
                 try:
+                    # Reubicar el párrafo antes de interactuar con él
+                    parrafo = elemento.find_elements(By.TAG_NAME, "p")[i]
                     texto_parrafo = parrafo.text
 
                     # Caso en que no hay radares para hoy
@@ -142,10 +154,14 @@ def comprobar_radares(driver):
                     elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
                         # Verificar si hay al menos un párrafo siguiente para evitar IndexError
                         if i + 1 < len(parrafos):
-                            # Obtener las ubicaciones de los radares y agregar a la lista
+                            # Reubicar los elementos antes de acceder a ellos
                             ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
                             logging.info(f"Radares móviles encontrados: {ubicaciones}")
                             return ubicaciones  # Retornar las ubicaciones encontradas
+                except StaleElementReferenceException:
+                    logging.warning("El elemento ha sido actualizado en el DOM. Reintentando...")
+                    # Reubicar el elemento y continuar con la iteración
+                    continue
                 except Exception as e:
                     logging.error(f"Error al procesar el párrafo: {e}")
                     # Si ocurre un error, continuar al siguiente párrafo
