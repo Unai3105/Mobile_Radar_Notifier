@@ -376,9 +376,9 @@ def main():
         locations = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        ids_usuarios = obtener_ids_usuarios()
+        # ids_usuarios = obtener_ids_usuarios()
 
-        # ids_usuarios = [632062529, 632062529]
+        ids_usuarios = [632062529, 632062529]
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
