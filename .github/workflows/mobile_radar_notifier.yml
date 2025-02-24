@@ -52,7 +52,7 @@ jobs:
         VERSION=133.0.6943.126
         wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
         unzip chromedriver-linux64.zip
-        sudo mv chromedriver /usr/local/bin/
+        sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
         sudo chmod +x /usr/local/bin/chromedriver
 
     # Paso: Verificar la versión de Google Chrome instalada
