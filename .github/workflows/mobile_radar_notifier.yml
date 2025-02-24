@@ -23,30 +23,23 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Paso: Descargar e instalar Google Chrome 133.0.6943.126
-    #- name: Install specific Google Chrome version 133.0.6943.126
-    #  run: |
-    #    VERSION=133.0.6943.126
-    #    wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
-    #    unzip chrome-linux64.zip
-    #    sudo mv chrome-linux64/chrome /usr/local/bin/google-chrome
-    #    sudo chmod +x /usr/local/bin/google-chrome
-    
-    # Paso: Descargar e instalar Chromedriver 133.0.6943.53
-    #- name: Install chromedriver 133.0.6943.53
-    #  run: |
-    #    VERSION=133.0.6943.53
-    #    wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
-    #    unzip chromedriver-linux64.zip
-    #    sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
-    #    sudo chmod +x /usr/local/bin/chromedriver
+    - name: Install specific Google Chrome version 114.0.5735.90
+      run: |
+        wget https://storage.googleapis.com/chrome-for-testing-public/114.0.5735.90/linux64/google-chrome-stable_114.0.5735.90-1_amd64.deb -O google-chrome.deb
+        sudo dpkg -i google-chrome.deb
+        sudo apt-get -f install
 
-    # Paso: Verificar la versión de Google Chrome instalada
+    - name: Install ChromeDriver 114.0.5735.90
+      run: |
+        wget https://storage.googleapis.com/chrome-for-testing-public/114.0.5735.90/linux64/chromedriver-linux64.zip
+        unzip chromedriver-linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+
     - name: Check Chrome version
       run: google-chrome --version
 
-    # Paso: Verificar la versión de Chromedriver instalada
-    - name: Check Chromedriver version
+    - name: Check ChromeDriver version
       run: chromedriver --version
 
     # Paso 1: Ejecutar el script de sincronización de interacciones de Telegram a MongoDB
