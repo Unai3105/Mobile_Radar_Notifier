@@ -72,6 +72,17 @@ def cargar_pagina(driver, donosti_radar_web_url, max_retries=3):
         try:
             driver.get(donosti_radar_web_url)
             logging.info(f"Página cargada correctamente en el intento {attempt + 1}.")
+
+            # Esperar 10 segundos para asegurar que todos los elementos se hayan cargado
+            time.sleep(10)
+
+            # Obtener el HTML de la página
+            page_html = driver.page_source
+            
+            # Imprimir el HTML completo en los logs para inspección manual
+            logging.info("HTML de la página cargada:")
+            logging.info(page_html)  # Esto imprimirá el HTML en los logs
+            
             return True
         except Exception as e:
             logging.warning(f"Error al cargar la página: {e}. Reintentando ({attempt + 1}/{max_retries})...")
