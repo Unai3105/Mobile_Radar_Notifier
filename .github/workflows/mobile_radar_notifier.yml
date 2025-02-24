@@ -6,6 +6,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  version-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Check Python version
+        run: python --version
+
+      - name: Check pip version
+        run: pip --version
+
+      - name: Check installed Python packages
+        run: pip freeze
+
   scraping_and_sync:
     runs-on: ubuntu-latest
 
