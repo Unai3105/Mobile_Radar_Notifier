@@ -23,25 +23,19 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Paso: Eliminar cualquier instalación previa de Google Chrome
-    - name: Remove any existing Chrome version
-      run: |
-        sudo apt-get remove --purge google-chrome-stable
-        sudo apt-get autoremove -y
-
     # Paso: Descargar e instalar Google Chrome 133.0.6943.126
-    - name: Install specific Google Chrome version 133.0.6943.126
-      run: |
-        VERSION=133.0.6943.126
-        wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
-        unzip chrome-linux64.zip
-        sudo mv chrome-linux64/chrome /usr/local/bin/google-chrome
-        sudo chmod +x /usr/local/bin/google-chrome
+    #- name: Install specific Google Chrome version 133.0.6943.126
+    #  run: |
+    #    VERSION=133.0.6943.126
+    #    wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
+    #    unzip chrome-linux64.zip
+    #    sudo mv chrome-linux64/chrome /usr/local/bin/google-chrome
+    #    sudo chmod +x /usr/local/bin/google-chrome
     
-    # Paso: Descargar e instalar Chromedriver 133.0.6943.126
-    - name: Install chromedriver 133.0.6943.126
+    # Paso: Descargar e instalar Chromedriver 133.0.6943.53
+    - name: Install chromedriver 133.0.6943.53
       run: |
-        VERSION=133.0.6943.126
+        VERSION=133.0.6943.53
         wget https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
         unzip chromedriver-linux64.zip
         sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
@@ -50,6 +44,10 @@ jobs:
     # Paso: Verificar la versión de Google Chrome instalada
     - name: Check Chrome version
       run: google-chrome --version
+
+    # Paso: Verificar la versión de Chromedriver instalada
+    - name: Check Chromedriver version
+      run: chromedriver --version
 
     # Paso 1: Ejecutar el script de sincronización de interacciones de Telegram a MongoDB
     - name: Run Telegram to MongoDB sync script
