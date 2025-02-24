@@ -12,8 +12,6 @@ from PIL import Image
 import traceback
 import requests
 import logging
-import tempfile
-import shutil
 import time
 import pytz
 import os
@@ -21,21 +19,11 @@ import os
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Crear un directorio temporal único para el perfil de usuario
-user_data_dir = tempfile.mkdtemp()
-
-chrome_options = webdriver.ChromeOptions()
-chrome_options.add_argument(f"user-data-dir={user_data_dir}")  # Usar un directorio temporal
-chrome_options.add_argument("--headless")  # Si no necesitas navegador visible
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
+# Opciones avanzadas de Chrome
+chrome_options = Options()
+chrome_options.add_argument("--headless")
 chrome_options.add_argument("--disable-gpu")
-
-# Crear el servicio del WebDriver
-service = Service(ChromeDriverManager().install())
-
-# Inicializar el driver de Chrome con el servicio y las opciones
-driver = webdriver.Chrome(service=service, options=chrome_options)
+chrome_options.add_argument("--window-size=1920x1080")
 
 # URL de la página a monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
@@ -125,7 +113,6 @@ def ocultar_elementos(driver):
 
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve las ubicaciones (vacías si no hay)."""
-    driver.get("https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm&idioma=cas&id=A434305381910")
     try:
         # Obtener la fecha actual en formato 'dd/mm/yyyy'
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
@@ -150,7 +137,7 @@ def comprobar_radares(driver):
             
             # Obtener los párrafos
             parrafos = elemento.find_elements(By.TAG_NAME, "p")
-            
+
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
                 texto_parrafo = parrafo.text
@@ -264,9 +251,6 @@ def enviar_mensaje_telegram(ids_usuarios, has_radar, locations):
                     'parse_mode': 'Markdown'
                 }
 
-                if has_radar:
-                    return 
-                    
                 # Enviar el mensaje
                 response = session.post(SEND_MESSAGE_URL, data=params)
 
@@ -383,9 +367,9 @@ def main():
         locations = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        # ids_usuarios = obtener_ids_usuarios()
+        ids_usuarios = obtener_ids_usuarios()
 
-        ids_usuarios = [632062529, 632062529]
+        # ids_usuarios = [632062529, 632062529]
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
