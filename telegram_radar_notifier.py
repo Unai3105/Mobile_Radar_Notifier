@@ -151,21 +151,26 @@ def comprobar_radares(driver):
 
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
-                texto_parrafo = parrafo.text
+                try:
+                    texto_parrafo = parrafo.text
 
-                # Caso en que no hay radares para hoy
-                if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
-                    logging.info("No hay radares móviles planificados para hoy.")
-                    return ubicaciones  # Retornar lista vacía
+                    # Caso en que no hay radares para hoy
+                    if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
+                        logging.info("No hay radares móviles planificados para hoy.")
+                        return ubicaciones  # Retornar lista vacía
 
-                # Caso en que hay radares planificados para hoy
-                elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
-                    # Verificar si hay al menos un párrafo siguiente para evitar IndexError
-                    if i + 1 < len(parrafos):
-                        # Obtener las ubicaciones de los radares y agregar a la lista
-                        ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
-                        logging.info(f"Radares móviles encontrados: {ubicaciones}")
-                        return ubicaciones  # Retornar las ubicaciones encontradas
+                    # Caso en que hay radares planificados para hoy
+                    elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                        # Verificar si hay al menos un párrafo siguiente para evitar IndexError
+                        if i + 1 < len(parrafos):
+                            # Obtener las ubicaciones de los radares y agregar a la lista
+                            ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
+                            logging.info(f"Radares móviles encontrados: {ubicaciones}")
+                            return ubicaciones  # Retornar las ubicaciones encontradas
+                except Exception as e:
+                    logging.error(f"Error al procesar el párrafo: {e}")
+                    # Si ocurre un error, continuar al siguiente párrafo
+                    continue
 
         # Si no se encontró nada relevante, retornar lista vacía
         logging.warning("Estado de radares desconocido o no planificado.")
@@ -174,7 +179,7 @@ def comprobar_radares(driver):
     except Exception as e:
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
-
+        
 def extraer_canvas(driver):
     """Extrae el contenido del canvas de la página y lo devuelve como un objeto de imagen en memoria."""
     try:
