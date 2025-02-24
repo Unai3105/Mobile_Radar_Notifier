@@ -59,7 +59,7 @@ collection_reports = db[MONGO_COLLECTION_REPORTS]
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager(version="133.0.6943.53").install()), options=chrome_options)
         logging.info("Driver de Chrome inicializado exitosamente en modo headless.")
         return driver
     except Exception as e:
@@ -367,9 +367,9 @@ def main():
         locations = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        ids_usuarios = obtener_ids_usuarios()
+        # ids_usuarios = obtener_ids_usuarios()
 
-        # ids_usuarios = [632062529, 632062529]
+        ids_usuarios = [632062529, 632062529]
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
