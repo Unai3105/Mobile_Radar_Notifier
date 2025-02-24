@@ -23,19 +23,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Paso: Instalar dependencias necesarias para Google Chrome
-    - name: Install dependencies for Google Chrome
+    # Paso: Eliminar cualquier instalación previa de Google Chrome
+    - name: Remove any existing Chrome version
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libxss1 \
-          libappindicator3-1 \
-          libindicator3-7 \
-          fonts-liberation \
-          libnss3 \
-          libgdk-pixbuf2.0-0 \
-          libgbm1 \
-          xdg-utils
+        sudo apt-get remove --purge google-chrome-stable
+        sudo apt-get autoremove -y
 
     # Paso: Descargar e instalar Google Chrome 133.0.6943.126
     - name: Install specific Google Chrome version 133.0.6943.126
