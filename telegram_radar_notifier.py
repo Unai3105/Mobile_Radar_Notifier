@@ -143,8 +143,6 @@ def comprobar_radares(driver):
             
             # Obtener los párrafos
             parrafos = elemento.find_elements(By.TAG_NAME, "p")
-
-            print("contenido de p: ", parrafos, "\n\n")
             
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
