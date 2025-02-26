@@ -23,13 +23,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Configurar el locale a es_ES
-      run: |
-        sudo apt-get install -y locales
-        sudo locale-gen es_ES.UTF-8
-        export LANG=es_ES.UTF-8
-        export LC_ALL=es_ES.UTF-8
-
     #- name: Install specific Google Chrome version 114.0.5735.90
     #  run: |
     #    wget https://storage.googleapis.com/chrome-for-testing-public/114.0.5735.90/linux64/google-chrome-stable_114.0.5735.90-1_amd64.deb -O google-chrome.deb
