@@ -140,32 +140,21 @@ def comprobar_radares(driver):
 
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
-                try:
-                    # Reubicar el párrafo antes de interactuar con él
-                    parrafo = elemento.find_elements(By.TAG_NAME, "p")[i]
-                    texto_parrafo = parrafo.text
+                texto_parrafo = parrafo.text
 
-                    # Caso en que no hay radares para hoy
-                    if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
-                        logging.info("No hay radares móviles planificados para hoy.")
-                        return ubicaciones  # Retornar lista vacía
+                # Caso en que no hay radares para hoy
+                if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
+                    logging.info("No hay radares móviles planificados para hoy.")
+                    return ubicaciones  # Retornar lista vacía
 
-                    # Caso en que hay radares planificados para hoy
-                    elif "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
-                        # Verificar si hay al menos un párrafo siguiente para evitar IndexError
-                        if i + 1 < len(parrafos):
-                            # Reubicar los elementos antes de acceder a ellos
-                            ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
-                            logging.info(f"Radares móviles encontrados: {ubicaciones}")
-                            return ubicaciones  # Retornar las ubicaciones encontradas
-                except StaleElementReferenceException:
-                    logging.warning("El elemento ha sido actualizado en el DOM. Reintentando...")
-                    # Reubicar el elemento y continuar con la iteración
-                    continue
-                except Exception as e:
-                    logging.error(f"Error al procesar el párrafo: {e}")
-                    # Si ocurre un error, continuar al siguiente párrafo
-                    continue
+                # Caso en que hay radares planificados para hoy
+                elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                    # Verificar si hay al menos un párrafo siguiente para evitar IndexError
+                    if i + 1 < len(parrafos):
+                        # Obtener las ubicaciones de los radares y agregar a la lista
+                        ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
+                        logging.info(f"Radares móviles encontrados: {ubicaciones}")
+                        return ubicaciones  # Retornar las ubicaciones encontradas
 
         # Si no se encontró nada relevante, retornar lista vacía
         logging.warning("Estado de radares desconocido o no planificado.")
