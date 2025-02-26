@@ -192,7 +192,7 @@ def extraer_canvas(driver):
         logging.info("Canvas desplazado a la vista.")
 
         # Esperar un momento para asegurarnos de que todo se haya renderizado
-        time.sleep(2)
+        time.sleep(20)
 
         # Tomar la captura de pantalla completa como objeto binario (para no guardarla)
         screenshot = driver.get_screenshot_as_png()
