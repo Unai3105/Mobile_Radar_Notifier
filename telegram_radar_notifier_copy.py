@@ -131,11 +131,13 @@ def comprobar_radares(html):
 
         # Buscar todos los párrafos <p> en el HTML
         parrafos = soup.find_all('p')
-
+        
         # Buscar en cada párrafo si hay radares planificados o no
         for i, parrafo in enumerate(parrafos):
             texto_parrafo = parrafo.get_text()
 
+            print(texto_parrafo)
+            
             # Caso en que no hay radares para hoy
             if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
                 logging.info("No hay radares móviles planificados para hoy.")
@@ -359,6 +361,9 @@ def main():
         # Obtener el html de la web
         html = cargar_pagina(driver, donosti_radar_web_url)
 
+        print(html)
+        print(\n\n)
+        
         # Comprobar el estado de los radares
         locations = comprobar_radares(html)
 
