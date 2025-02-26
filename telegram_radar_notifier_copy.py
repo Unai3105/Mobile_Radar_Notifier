@@ -362,7 +362,7 @@ def main():
         html = cargar_pagina(driver, donosti_radar_web_url)
 
         print(html)
-        print(\n\n)
+        print("\n\n")
         
         # Comprobar el estado de los radares
         locations = comprobar_radares(html)
