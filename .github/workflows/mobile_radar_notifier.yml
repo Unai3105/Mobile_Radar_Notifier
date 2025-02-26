@@ -23,25 +23,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    #- name: Install specific Google Chrome version 114.0.5735.90
-    #  run: |
-    #    wget https://storage.googleapis.com/chrome-for-testing-public/114.0.5735.90/linux64/google-chrome-stable_114.0.5735.90-1_amd64.deb -O google-chrome.deb
-    #    sudo dpkg -i google-chrome.deb
-    #    sudo apt-get -f install
-
-    #- name: Install ChromeDriver 114.0.5735.90
-    #  run: |
-    #    wget https://storage.googleapis.com/chrome-for-testing-public/114.0.5735.90/linux64/chromedriver-linux64.zip
-    #    unzip chromedriver-linux64.zip
-    #    sudo mv chromedriver /usr/local/bin/
-    #    sudo chmod +x /usr/local/bin/chromedriver
-
-    #- name: Check Chrome version
-    #  run: google-chrome --version
-
-    #- name: Check ChromeDriver version
-    #  run: chromedriver --version
-
     # Paso 1: Ejecutar el script de sincronización de interacciones de Telegram a MongoDB
     - name: Run Telegram to MongoDB sync script
       env:
