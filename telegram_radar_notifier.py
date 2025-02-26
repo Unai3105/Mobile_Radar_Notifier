@@ -134,12 +134,14 @@ def comprobar_radares(driver):
             WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "p"))
             )
-            
+
             # Obtener los párrafos
             parrafos = elemento.find_elements(By.TAG_NAME, "p")
 
             # Buscar en cada párrafo si hay radares planificados o no
             for i, parrafo in enumerate(parrafos):
+                # Reubicar el párrafo antes de interactuar con él
+                parrafo = elemento.find_elements(By.TAG_NAME, "p")[i]
                 texto_parrafo = parrafo.text
 
                 # Caso en que no hay radares para hoy
@@ -148,10 +150,10 @@ def comprobar_radares(driver):
                     return ubicaciones  # Retornar lista vacía
 
                 # Caso en que hay radares planificados para hoy
-                elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                elif "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
                     # Verificar si hay al menos un párrafo siguiente para evitar IndexError
                     if i + 1 < len(parrafos):
-                        # Obtener las ubicaciones de los radares y agregar a la lista
+                        # Reubicar los elementos antes de acceder a ellos
                         ubicaciones = [span.text for span in parrafos[i + 1].find_elements(By.CLASS_NAME, "label")]
                         logging.info(f"Radares móviles encontrados: {ubicaciones}")
                         return ubicaciones  # Retornar las ubicaciones encontradas
@@ -159,7 +161,7 @@ def comprobar_radares(driver):
         # Si no se encontró nada relevante, retornar lista vacía
         logging.warning("Estado de radares desconocido o no planificado.")
         return None  # Retornar lista vacía si no se encontraron radares
-         
+
     except Exception as e:
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
