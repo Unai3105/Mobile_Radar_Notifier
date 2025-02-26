@@ -365,9 +365,9 @@ def main():
         # Obtener los IDs de los usuarios
         # ids_usuarios = obtener_ids_usuarios()
 
-        # ids_usuarios = [632062529]
+        ds_usuarios = [632062529, 632062529]
 
-        ids_usuarios = []
+        # ids_usuarios = []
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
@@ -390,14 +390,14 @@ def main():
             logging.info("No hay usuarios a los que enviar el mensaje.")
 
         # Registrar los resultados del monitoreo en MongoDB
-        # registrar_monitoreo_mensajes(
-        #     scrapping_time=datetime.now(pytz.UTC).isoformat(),
-        #     has_radar=has_radar,
-        #     locations=locations,
-        #     message_sent=message_sent,
-        #     ids_sent=ids_sent,
-        #     ids_error=ids_error
-        # )
+        registrar_monitoreo_mensajes(
+            scrapping_time=datetime.now(pytz.UTC).isoformat(),
+            has_radar=has_radar,
+            locations=locations,
+            message_sent=message_sent,
+            ids_sent=ids_sent,
+            ids_error=ids_error
+        )
 
     # Cerrar el driver
     if driver:
