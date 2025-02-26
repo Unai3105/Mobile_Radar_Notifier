@@ -365,7 +365,7 @@ def main():
         # Obtener los IDs de los usuarios
         # ids_usuarios = obtener_ids_usuarios()
 
-        ds_usuarios = [632062529, 632062529]
+        ids_usuarios = [632062529, 632062529]
 
         # ids_usuarios = []
 
