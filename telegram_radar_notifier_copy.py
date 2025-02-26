@@ -136,6 +136,8 @@ def comprobar_radares(html):
         for i, parrafo in enumerate(parrafos):
             texto_parrafo = parrafo.get_text()
 
+            print(fecha_actual)
+            
             print(texto_parrafo)
             
             # Caso en que no hay radares para hoy
@@ -145,8 +147,10 @@ def comprobar_radares(html):
 
             # Caso en que hay radares planificados para hoy
             elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                print("HAY ALGO")
                 # Verificar si hay al menos un párrafo siguiente para evitar IndexError
                 if i + 1 < len(parrafos):
+                    print("ESTA DENTRO")
                     # Buscar las ubicaciones dentro de los span con clase "label"
                     ubicaciones = [span.get_text() for span in parrafos[i + 1].find_all('span', class_='label')]
                     logging.info(f"Radares móviles encontrados: {ubicaciones}")
