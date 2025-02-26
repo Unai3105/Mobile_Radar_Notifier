@@ -151,7 +151,7 @@ def comprobar_radares(driver):
                         return ubicaciones  # Retornar lista vacía
 
                     # Caso en que hay radares planificados para hoy
-                    elif fecha_actual in texto_parrafo and "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                    elif "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
                         # Verificar si hay al menos un párrafo siguiente para evitar IndexError
                         if i + 1 < len(parrafos):
                             # Reubicar los elementos antes de acceder a ellos
@@ -380,7 +380,7 @@ def main():
         # Obtener los IDs de los usuarios
         # ids_usuarios = obtener_ids_usuarios()
 
-        ids_usuarios = [632062529, 632062529]
+        ids_usuarios = [632062529]
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
