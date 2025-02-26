@@ -62,4 +62,4 @@ jobs:
         MONGO_COLLECTION_INTERACTIONS: ${{ secrets.MONGO_COLLECTION_INTERACTIONS }}
         MONGO_COLLECTION_REPORTS: ${{ secrets.MONGO_COLLECTION_REPORTS }}
       run: |
-        python telegram_radar_notifier.py
+        python telegram_radar_notifier_copy.py
