@@ -183,7 +183,7 @@ def extraer_canvas(driver):
         logging.info("Canvas desplazado a la vista.")
 
         # Esperar un momento para asegurarnos de que todo se haya renderizado
-        time.sleep(5)
+        time.sleep(10)
 
         # Tomar la captura de pantalla completa como objeto binario (para no guardarla)
         screenshot = driver.get_screenshot_as_png()
@@ -369,9 +369,9 @@ def main():
         locations = comprobar_radares(driver)
 
         # Obtener los IDs de los usuarios
-        ids_usuarios = obtener_ids_usuarios()
+        # ids_usuarios = obtener_ids_usuarios()
 
-        # ids_usuarios = [632062529]
+        ids_usuarios = [632062529]
 
         # Inicializar variables para el monitoreo
         has_radar = bool(locations)
@@ -386,7 +386,7 @@ def main():
                 img_byte_array = extraer_canvas(driver)
                 
             # Enviar la información de los radares a todos los usuarios
-            message_sent, ids_sent, ids_error = enviar_mensaje_telegram(ids_usuarios, has_radar, locations)
+            # message_sent, ids_sent, ids_error = enviar_mensaje_telegram(ids_usuarios, has_radar, locations)
 
             if has_radar:
                 # Enviar la imagen a todos los usuarios
@@ -396,14 +396,14 @@ def main():
             logging.info("No hay usuarios a los que enviar el mensaje.")
 
         # Registrar los resultados del monitoreo en MongoDB
-        registrar_monitoreo_mensajes(
-            scrapping_time=datetime.now(pytz.UTC).isoformat(),
-            has_radar=has_radar,
-            locations=locations,
-            message_sent=message_sent,
-            ids_sent=ids_sent,
-            ids_error=ids_error
-        )
+        # registrar_monitoreo_mensajes(
+        #    scrapping_time=datetime.now(pytz.UTC).isoformat(),
+        #    has_radar=has_radar,
+        #    locations=locations,
+        #    message_sent=message_sent,
+        #    ids_sent=ids_sent,
+        #    ids_error=ids_error
+        #)
 
     # Cerrar el driver
     if driver:
