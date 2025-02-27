@@ -386,7 +386,7 @@ def main():
                 img_byte_array = extraer_canvas(driver)
                 
             # Enviar la información de los radares a todos los usuarios
-            # message_sent, ids_sent, ids_error = enviar_mensaje_telegram(ids_usuarios, has_radar, locations)
+            message_sent, ids_sent, ids_error = enviar_mensaje_telegram(ids_usuarios, has_radar, locations)
 
             if has_radar:
                 # Enviar la imagen a todos los usuarios
