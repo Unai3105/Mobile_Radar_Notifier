@@ -118,7 +118,7 @@ def comprobar_radares(driver):
         fecha_actual = datetime.now().strftime("%d/%m/%Y")
 
         # Esperar explícitamente a que los elementos con la clase "span12" estén presentes en el DOM
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 30).until(
             EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
         )
 
@@ -131,7 +131,7 @@ def comprobar_radares(driver):
         # Iterar sobre los elementos encontrados
         for elemento in elementos_span12:
             # Esperar a que los párrafos dentro de cada "span12" estén presentes
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 30).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "p"))
             )
 
