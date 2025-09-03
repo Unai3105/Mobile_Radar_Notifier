@@ -35,7 +35,7 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
 
 ## Execution Flow and Data Pipeline
 <!-- Insert image here: Execution Flow and Data Pipeline -->
-![Execution Flow](path/to/execution_flow_image.png)
+![Execution Flow](https://github.com/user-attachments/assets/ed78489e-e062-4210-9f43-8fb3b43d7421)
 
 ---
 
