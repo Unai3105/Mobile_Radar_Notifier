@@ -29,7 +29,7 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
 
 ## System Architecture Overview
 <!-- Insert image here: System Architecture Overview -->
-![System Architecture](path/to/architecture_image.png)
+![System Architecture](https://github.com/user-attachments/assets/0516d768-f51d-4254-80e3-7f1b092529e6)
 
 ---
 
