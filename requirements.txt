@@ -3,4 +3,4 @@ requests==2.34.2
 pymongo==4.10.1
 python-dotenv==1.2.4
 Pillow==11.0.0
-beautifulsoup4==4.12.3
+beautifulsoup4==4.15.0
