@@ -9,6 +9,9 @@ jobs:
   scraping_and_sync:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write  # para el paso keepalive
     
     steps:
     - name: Check out the code
@@ -47,3 +50,12 @@ jobs:
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
       run: |
         python telegram_radar_notifier.py
+
+    # Paso 3: Mantener activo el cron (GitHub lo desactiva tras 60 días sin actividad en el repo)
+    - name: Keepalive del workflow programado
+      if: always()
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api -X PUT "repos/${{ github.repository }}/actions/workflows/mobile_radar_notifier.yml/enable"
