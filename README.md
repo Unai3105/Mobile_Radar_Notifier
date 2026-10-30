@@ -9,10 +9,10 @@ The system has two main functions:
 1. **Radar Monitoring:** Web scraping of radar location data with automated image capture.
 2. **User Notification:** Telegram bot integration for message delivery and user management.
 
-For more detailed information on components and deployment, see the [Operations Guide](#) and [Technical Reference](#).
+For configuration, see [Configuration](#configuration) and [Development](#development).
 
 ### System Description
-The system runs daily at **06:50 UTC**, performing sequential operations to sync user data and check radar locations. When radars are detected, map images are captured and notifications with location details are sent to all registered Telegram users. All monitoring activities and interactions are logged in MongoDB for persistence and audit purposes.
+The system runs daily at **05:50 UTC** (06:50 / 07:50 in Spain, winter / summer), performing sequential operations to sync user data and check radar locations. When radars are detected, map images are captured and notifications with location details are sent to all active Telegram users. Users who block the bot are marked as inactive automatically. If the radar website cannot be read, only the administrator is notified and the run fails. All monitoring activities and interactions are logged in MongoDB for persistence and audit purposes.
 
 ---
 
@@ -28,13 +28,11 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
 ---
 
 ## System Architecture Overview
-<!-- Insert image here: System Architecture Overview -->
 ![System Architecture](https://github.com/user-attachments/assets/0516d768-f51d-4254-80e3-7f1b092529e6)
 
 ---
 
 ## Execution Flow and Data Pipeline
-<!-- Insert image here: Execution Flow and Data Pipeline -->
 ![Execution Flow](https://github.com/user-attachments/assets/ed78489e-e062-4210-9f43-8fb3b43d7421)
 
 ---
@@ -46,12 +44,13 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
 **telegram_radar_notifier.py**
 - Chrome WebDriver initialization via `inicializar_driver()`
 - Web scraping: `comprobar_radares()` and `extraer_canvas()`
-- Telegram messaging: `enviar_mensaje_telegram()` and `enviar_imagen_telegram()`
+- Telegram messaging: `enviar_mensaje_telegram()` and `enviar_imagen_telegram()` (users returning 403 are marked inactive)
+- Admin alerts: `enviar_aviso_admin()`
 - MongoDB logging: `registrar_monitoreo_mensajes()`
 
 **bot_interactions_updater.py**
 - Telegram API polling: `obtener_interacciones()`
-- User activity validation: `obtener_estado_usuario()`
+- Incremental polling: last processed `update_id` stored in the `bot_state` collection
 - Data transformation: `transformar_a_estructura_mongo()`
 - MongoDB persistence: `guardar_interacciones_en_bd()`
 
@@ -62,7 +61,9 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
   - Scheduled triggers: `cron: '50 5 * * *'`
   - Sequential job execution in `scraping_and_sync`
   - Environment variable injection for secrets
-  - Python 3.10.11 runtime with dependency installation
+  - Python 3.12 runtime with dependency installation
+- **CI workflow** (`ci.yml`) runs lint and tests on every push and pull request
+- **Dependabot** proposes monthly updates for Python packages and GitHub Actions
 
 ---
 
@@ -75,9 +76,34 @@ The system runs daily at **06:50 UTC**, performing sequential operations to sync
 | PyMongo       | Database connectivity   | MongoDB Atlas operations           |
 | Requests      | HTTP communication      | Telegram API calls                  |
 | BeautifulSoup | HTML parsing            | Web content analysis                |
-| PyTZ          | Timezone handling       | UTC timestamp management            |
 
 The system runs entirely in the **GitHub Actions Ubuntu environment**, requiring no persistent infrastructure beyond MongoDB Atlas and Telegram bot credentials.
+
+---
+
+## Configuration
+
+Repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Description |
+|---|---|
+| `TELEGRAM_TOKEN` | Telegram bot token |
+| `DONOSTI_RADAR_WEB` | URL of the radar page |
+| `MONGO_URI`, `MONGO_DB` | MongoDB Atlas connection and database |
+| `MONGO_COLLECTION_INTERACTIONS`, `MONGO_COLLECTION_REPORTS` | Collection names |
+| `ADMIN_CHAT_ID` | *(Optional)* Telegram chat that receives error alerts |
+
+> MongoDB Atlas pauses free clusters after long inactivity: if the run fails with a DNS error for `_mongodb._tcp...`, resume the cluster in Atlas.
+
+---
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+pytest -q
+```
 
 ---
 

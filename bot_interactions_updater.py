@@ -10,7 +10,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Configura el token de tu bot
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GET_UPDATES_URL = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates'
-GET_CHAT_MEMBER_URL = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/getChatMember'
 
 # Configura la conexión con MongoDB Atlas
 MONGO_URI = os.getenv("MONGO_URI")
@@ -22,10 +21,27 @@ db = client[MONGO_DB]
 MONGO_COLLECTION_INTERACTIONS = os.getenv("MONGO_COLLECTION_INTERACTIONS")
 collection = db[MONGO_COLLECTION_INTERACTIONS]
 
+# Colección auxiliar para guardar el último update_id procesado de Telegram
+collection_state = db["bot_state"]
+STATE_ID = "telegram_updates"
+
+def obtener_ultimo_update_id():
+    estado = collection_state.find_one({"_id": STATE_ID})
+    return estado.get("last_update_id") if estado else None
+
+def guardar_ultimo_update_id(update_id):
+    collection_state.update_one(
+        {"_id": STATE_ID},
+        {"$set": {"last_update_id": update_id}},
+        upsert=True
+    )
+
 def obtener_interacciones():
     try:
         logging.info("Iniciando la solicitud a la API de Telegram...")
-        response = requests.get(GET_UPDATES_URL)
+        ultimo_update_id = obtener_ultimo_update_id()
+        params = {"offset": ultimo_update_id + 1} if ultimo_update_id is not None else {}
+        response = requests.get(GET_UPDATES_URL, params=params, timeout=30)
         data = response.json()
 
         if data.get('ok'):
@@ -38,27 +54,6 @@ def obtener_interacciones():
     except Exception as e:
         logging.error(f"Error en la solicitud HTTP: {e}")
         raise  # Vuelve a lanzar la excepción para propagar el error
-
-def obtener_estado_usuario(chat_id):
-    """
-    Verifica si el usuario está activo o ha dejado el bot.
-    """
-    try:
-        url = f"{GET_CHAT_MEMBER_URL}?chat_id={chat_id}&user_id={chat_id}"
-        response = requests.get(url)
-        data = response.json()
-        
-        if data.get('ok'):
-            # Si el estado es "left", significa que el usuario ha dejado el bot
-            if data['result']['status'] == 'left':
-                return False
-            return True
-        else:
-            logging.error(f"Error al obtener estado del usuario {chat_id}: {data}")
-            return True  # Si no se puede obtener el estado, asumimos que está activo
-    except Exception as e:
-        logging.error(f"Error al verificar estado del usuario {chat_id}: {e}")
-        return True  # En caso de error, asumimos que está activo
 
 def transformar_a_estructura_mongo(interacciones):
     try:
@@ -93,7 +88,7 @@ def transformar_a_estructura_mongo(interacciones):
                 chat['messages'].append({
                     "message_id": mensaje['message_id'],
                     "date": mensaje['date'],
-                    "text": mensaje['text'],
+                    "text": mensaje.get('text', ''),
                     "command": '',
                     "entities": []
                 })
@@ -145,8 +140,8 @@ def guardar_interacciones_en_bd(interacciones):
                     "messages": [
                         {
                             "message_id": message_id,
-                            "date": datetime.datetime.utcfromtimestamp(msg["date"]),
-                            "text": msg["text"],
+                            "date": datetime.datetime.fromtimestamp(msg["date"], datetime.timezone.utc),
+                            "text": msg.get("text", ""),
                             "command": msg.get("command", ""),
                             "entities": msg.get("entities", [])
                         }
@@ -155,20 +150,13 @@ def guardar_interacciones_en_bd(interacciones):
                 logging.info(f"Chat con ID {chat_id} añadido a la base de datos.")
 
             else:
-                # Comprobamos si el usuario está activo
-                if not obtener_estado_usuario(chat_id):
-                    # Si el usuario ha dejado el bot, lo marcamos como inactivo
-                    logging.info(f"Usuario con ID {chat_id} ha dejado el bot, actualizando estado a inactivo.")
-                    collection.update_one(
-                        {"chat_id": chat_id},
-                        {"$set": {"active": False}}
-                    )
-                else:
-                    # Si el usuario está activo, aseguramos que esté marcado como tal
-                    collection.update_one(
-                        {"chat_id": chat_id},
-                        {"$set": {"active": True}}
-                    )
+                # Si el usuario vuelve a escribir al bot, se considera activo.
+                # (Los que bloquean el bot se marcan como inactivos al recibir
+                # un 403 en telegram_radar_notifier.py)
+                collection.update_one(
+                    {"chat_id": chat_id},
+                    {"$set": {"active": True}}
+                )
 
                 # Verificamos si el mensaje ya existe en el chat
                 existing_message = collection.find_one(
@@ -183,8 +171,8 @@ def guardar_interacciones_en_bd(interacciones):
                             "$push": {
                                 "messages": {
                                     "message_id": message_id,
-                                    "date": datetime.datetime.utcfromtimestamp(msg["date"]),
-                                    "text": msg["text"],
+                                    "date": datetime.datetime.fromtimestamp(msg["date"], datetime.timezone.utc),
+                                    "text": msg.get("text", ""),
                                     "command": msg.get("command", ""),
                                     "entities": msg.get("entities", [])
                                 }
@@ -201,6 +189,8 @@ def main():
     if interacciones:
         chats_transformados = transformar_a_estructura_mongo(interacciones)
         guardar_interacciones_en_bd(chats_transformados)
+        # Confirmar a Telegram los updates procesados para no repetirlos
+        guardar_ultimo_update_id(max(i['update_id'] for i in interacciones))
     else:
         logging.warning("No se han obtenido nuevas interacciones de Telegram.")
 
