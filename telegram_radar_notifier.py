@@ -1,7 +1,5 @@
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from pymongo import MongoClient
@@ -63,10 +61,10 @@ collection_reports = db[MONGO_COLLECTION_REPORTS]
 def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+        driver = webdriver.Chrome(options=chrome_options)  # Selenium Manager gestiona el chromedriver
         logging.info("Driver de Chrome inicializado exitosamente en modo headless.")
         return driver
-    except Exception as e:
+    except Exception:
         logging.error("Error al inicializar el driver de Chrome: %s", traceback.format_exc())
         return None
 
@@ -91,7 +89,7 @@ def rechazar_cookies(driver):
         cookies_button.click()
         logging.info("Aviso de cookies rechazado.")
         time.sleep(1)  # Esperar a que el aviso desaparezca
-    except Exception as e:
+    except Exception:
         logging.warning("No se encontró el aviso de cookies o no se pudo cerrar: %s", traceback.format_exc())
 
 def ocultar_elementos(driver):
@@ -163,7 +161,7 @@ def comprobar_radares(driver):
         logging.warning("Estado de radares desconocido o no planificado.")
         return None
 
-    except Exception as e:
+    except Exception:
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
         
@@ -211,7 +209,7 @@ def extraer_canvas(driver):
 
         logging.info("Canvas capturado y convertido en imagen en memoria.")
         return img_byte_array  # Retorna el buffer en memoria
-    except Exception as e:
+    except Exception:
         logging.error("Error al extraer el canvas: %s", traceback.format_exc())
         raise # Propaga el error al `main`
 
@@ -264,7 +262,7 @@ def enviar_mensaje_telegram(ids_usuarios, has_radar, locations):
                         # El usuario ha bloqueado el bot: no volver a enviarle mensajes
                         marcar_usuario_inactivo(user_id)
 
-    except Exception as e:
+    except Exception:
         logging.error("Error al enviar los mensajes de Telegram: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
 
@@ -294,7 +292,7 @@ def enviar_imagen_telegram(ids_usuarios, img_byte_array):
                 logging.info(f"Imagen enviada correctamente a {user_id}")
             else:
                 logging.error(f"Error al enviar la imagen a {user_id}: {response.status_code}")
-    except Exception as e:
+    except Exception:
         logging.error("Error al enviar las imágenes de Telegram: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
 
@@ -359,7 +357,7 @@ def registrar_monitoreo_mensajes(scrapping_time, has_radar, locations, message_s
         result = collection_reports.insert_one(documento)
         logging.info(f"Monitoreo del scrapping realizada correctamente con ID: {result.inserted_id}")
 
-    except Exception as e:
+    except Exception:
         logging.error("Error al registrar el monitoreo en MongoDB: %s", traceback.format_exc())
         raise # Propaga el error al `main`
 
