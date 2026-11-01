@@ -1,6 +1,6 @@
 selenium==4.52.0
 requests==2.34.2
-pymongo==4.10.1
+pymongo==4.19.0
 python-dotenv==1.2.4
 Pillow==13.0.0
 beautifulsoup4==4.15.0
