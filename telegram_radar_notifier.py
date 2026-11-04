@@ -1,3 +1,4 @@
+import base64
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
@@ -172,48 +173,96 @@ JS_ENCUADRAR_RADARES = """
 const done = arguments[arguments.length - 1];
 const esMapa = o => o && typeof o.getView === 'function' && typeof o.getLayers === 'function'
                     && typeof o.getTargetElement === 'function';
-let mapa = null;
-const vistos = new Set();
-const buscar = (obj, nivel) => {
-  if (mapa || !obj || nivel > 2 || vistos.has(obj)) return;
-  vistos.add(obj);
-  let claves = [];
-  try { claves = Object.keys(obj); } catch (e) { return; }
-  for (const k of claves) {
-    let v; try { v = obj[k]; } catch (e) { continue; }
-    if (!v || (typeof v !== 'object' && typeof v !== 'function')) continue;
-    if (esMapa(v)) { mapa = v; return; }
-    if (nivel < 2) buscar(v, nivel + 1);
-    if (mapa) return;
+const buscarMapa = () => {
+  // 1) Visor Bisorea (geo.euskadi.eus): COREProxy.listeners[i].mapMng.map
+  try {
+    const ls = (window.COREProxy && window.COREProxy.listeners) || [];
+    for (const l of Object.values(ls)) {
+      const m = l && l.mapMng && l.mapMng.map;
+      if (esMapa(m)) return m;
+    }
+  } catch (e) { /* sigue con la búsqueda genérica */ }
+  // 2) Búsqueda genérica en anchura desde window
+  const vistos = new Set();
+  const cola = [[window, 0]];
+  while (cola.length) {
+    const [obj, nivel] = cola.shift();
+    if (!obj || vistos.has(obj)) continue;
+    vistos.add(obj);
+    let claves = [];
+    try { claves = Object.keys(obj); } catch (e) { continue; }
+    for (const k of claves) {
+      if (obj === window && /^(document|parent|top|self|frames|window)$/.test(k)) continue;
+      let v; try { v = obj[k]; } catch (e) { continue; }
+      if (!v || (typeof v !== 'object' && typeof v !== 'function')) continue;
+      if (esMapa(v)) return v;
+      if (nivel < 4 && vistos.size < 20000) cola.push([v, nivel + 1]);
+    }
   }
+  return null;
 };
-buscar(window, 0);
-if (!mapa) { done('sin_mapa'); return; }
 
-// Recoger la extensión de todas las features vectoriales visibles (los tramos rojos)
-let ext = null;
-const recorrer = capas => capas.forEach(capa => {
-  if (capa.getLayers) { recorrer(capa.getLayers().getArray()); return; }
-  if (capa.getVisible && !capa.getVisible()) return;
-  const src = capa.getSource && capa.getSource();
-  if (!src || typeof src.getFeatures !== 'function') return;
-  src.getFeatures().forEach(f => {
-    const g = f.getGeometry && f.getGeometry();
-    if (!g) return;
-    const e = g.getExtent();
-    ext = ext ? [Math.min(ext[0], e[0]), Math.min(ext[1], e[1]),
-                 Math.max(ext[2], e[2]), Math.max(ext[3], e[3])] : e.slice();
+// Extensión de todas las features vectoriales visibles (los tramos rojos)
+const capasHoja = mapa => {
+  const out = [];
+  const rec = capas => capas.forEach(c => c.getLayers ? rec(c.getLayers().getArray()) : out.push(c));
+  rec(mapa.getLayers().getArray());
+  return out;
+};
+const extension = mapa => {
+  let ext = null;
+  capasHoja(mapa).forEach(capa => {
+    if (capa.getVisible && !capa.getVisible()) return;
+    const src = capa.getSource && capa.getSource();
+    if (!src || typeof src.getFeatures !== 'function') return;
+    src.getFeatures().forEach(f => {
+      const g = f.getGeometry && f.getGeometry();
+      if (!g) return;
+      const e = g.getExtent();
+      ext = ext ? [Math.min(ext[0], e[0]), Math.min(ext[1], e[1]),
+                   Math.max(ext[2], e[2]), Math.max(ext[3], e[3])] : e.slice();
+    });
   });
-});
-recorrer(mapa.getLayers().getArray());
-if (!ext || !isFinite(ext[0])) { done('sin_features'); return; }
+  return ext && isFinite(ext[0]) ? ext : null;
+};
 
-let terminado = false;
-const fin = r => { if (!terminado) { terminado = true; done(r); } };
-mapa.once('rendercomplete', () => fin('ok'));
-setTimeout(() => fin('timeout_render'), 15000);
-mapa.getView().fit(ext, { padding: [60, 60, 60, 60], maxZoom: 17, duration: 0 });
-mapa.renderSync && mapa.renderSync();
+// Encuadra y espera a que las teselas terminen de cargar (OL 4 no tiene 'rendercomplete')
+const encuadrar = (mapa, ext) => {
+  let terminado = false;
+  const fin = r => { if (!terminado) { terminado = true; done(r); } };
+  let pendientes = 0;
+  let quieto = null;
+  const revisar = () => {
+    clearTimeout(quieto);
+    if (pendientes <= 0) quieto = setTimeout(() => fin('ok'), 1200);
+  };
+  capasHoja(mapa).forEach(capa => {
+    const src = capa.getSource && capa.getSource();
+    if (!src || !src.on) return;
+    src.on('tileloadstart', () => { pendientes++; clearTimeout(quieto); });
+    ['tileloadend', 'tileloaderror'].forEach(ev => src.on(ev, () => { pendientes--; revisar(); }));
+  });
+  setTimeout(() => fin('timeout_render'), 15000);
+  // Mapa más alto (proporción 4:3) para que los tramos salgan más ampliados
+  const destino = mapa.getTargetElement();
+  if (destino) destino.style.height = Math.round(destino.clientWidth * 0.75) + 'px';
+  mapa.updateSize();
+  mapa.getView().fit(ext, { padding: [40, 40, 40, 40], maxZoom: 17, duration: 0,
+                            constrainResolution: false });
+  mapa.renderSync && mapa.renderSync();
+  revisar();
+};
+
+// Las features se añaden cuando el visor termina de cargar: reintentar hasta 15 s
+const inicio = Date.now();
+const intentar = () => {
+  const mapa = buscarMapa();
+  const ext = mapa && extension(mapa);
+  if (ext) { encuadrar(mapa, ext); return; }
+  if (Date.now() - inicio > 15000) { done(mapa ? 'sin_features' : 'sin_mapa'); return; }
+  setTimeout(intentar, 500);
+};
+intentar();
 """
 
 
@@ -251,6 +300,29 @@ def recortar_zona_roja(img, margen=60, min_lado=400):
     return img.crop((left, top, right, bottom))
 
 
+def capturar_elemento(driver, elemento, escala=1):
+    """Captura un elemento a resolución real (devicePixelRatio) usando CDP.
+
+    ``element.screenshot_as_png`` devuelve la imagen a 1x aunque Chrome
+    renderice a 2x, así que se recurre a ``Page.captureScreenshot`` con clip.
+    """
+    try:
+        r = driver.execute_script(
+            "const r = arguments[0].getBoundingClientRect();"
+            "return [r.left + scrollX, r.top + scrollY, r.width, r.height];",
+            elemento,
+        )
+        datos = driver.execute_cdp_cmd("Page.captureScreenshot", {
+            "format": "png",
+            "captureBeyondViewport": True,
+            "clip": {"x": r[0], "y": r[1], "width": r[2], "height": r[3], "scale": escala},
+        })
+        return Image.open(BytesIO(base64.b64decode(datos["data"])))
+    except Exception:
+        logging.warning("Captura CDP fallida, se usa la de Selenium: %s", traceback.format_exc())
+        return Image.open(BytesIO(elemento.screenshot_as_png))
+
+
 def extraer_canvas(driver):
     """Captura solo el mapa, encuadrado y ampliado en los tramos con radar, como imagen en memoria."""
     try:
@@ -267,7 +339,7 @@ def extraer_canvas(driver):
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", viewport)
 
         # Encuadrar el mapa en los tramos y esperar a que termine de renderizar
-        driver.set_script_timeout(25)
+        driver.set_script_timeout(40)
         try:
             resultado = driver.execute_async_script(JS_ENCUADRAR_RADARES)
         except Exception as e:
@@ -278,7 +350,7 @@ def extraer_canvas(driver):
             time.sleep(5)
 
         # Captura únicamente del elemento del mapa (no de toda la web)
-        img = Image.open(BytesIO(viewport.screenshot_as_png))
+        img = capturar_elemento(driver, viewport)
 
         # Recortar a la zona de los trazos rojos (refuerza/sustituye al encuadre JS)
         img = recortar_zona_roja(img)
