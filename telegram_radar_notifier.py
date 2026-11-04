@@ -6,7 +6,7 @@ from pymongo import MongoClient
 from selenium import webdriver
 from datetime import datetime, timezone
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageChops
 import traceback
 import requests
 import logging
@@ -23,6 +23,7 @@ chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
+chrome_options.add_argument("--force-device-scale-factor=2")  # Captura del mapa en alta resolución
 
 # URL de la página a monitorear
 donosti_radar_web_url = os.getenv("DONOSTI_RADAR_WEB")
@@ -165,50 +166,129 @@ def comprobar_radares(driver):
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
         
+# JS que localiza la instancia del mapa OpenLayers, encuadra la vista en los
+# tramos dibujados (capas vectoriales) y espera a que el mapa termine de pintar.
+JS_ENCUADRAR_RADARES = """
+const done = arguments[arguments.length - 1];
+const esMapa = o => o && typeof o.getView === 'function' && typeof o.getLayers === 'function'
+                    && typeof o.getTargetElement === 'function';
+let mapa = null;
+const vistos = new Set();
+const buscar = (obj, nivel) => {
+  if (mapa || !obj || nivel > 2 || vistos.has(obj)) return;
+  vistos.add(obj);
+  let claves = [];
+  try { claves = Object.keys(obj); } catch (e) { return; }
+  for (const k of claves) {
+    let v; try { v = obj[k]; } catch (e) { continue; }
+    if (!v || (typeof v !== 'object' && typeof v !== 'function')) continue;
+    if (esMapa(v)) { mapa = v; return; }
+    if (nivel < 2) buscar(v, nivel + 1);
+    if (mapa) return;
+  }
+};
+buscar(window, 0);
+if (!mapa) { done('sin_mapa'); return; }
+
+// Recoger la extensión de todas las features vectoriales visibles (los tramos rojos)
+let ext = null;
+const recorrer = capas => capas.forEach(capa => {
+  if (capa.getLayers) { recorrer(capa.getLayers().getArray()); return; }
+  if (capa.getVisible && !capa.getVisible()) return;
+  const src = capa.getSource && capa.getSource();
+  if (!src || typeof src.getFeatures !== 'function') return;
+  src.getFeatures().forEach(f => {
+    const g = f.getGeometry && f.getGeometry();
+    if (!g) return;
+    const e = g.getExtent();
+    ext = ext ? [Math.min(ext[0], e[0]), Math.min(ext[1], e[1]),
+                 Math.max(ext[2], e[2]), Math.max(ext[3], e[3])] : e.slice();
+  });
+});
+recorrer(mapa.getLayers().getArray());
+if (!ext || !isFinite(ext[0])) { done('sin_features'); return; }
+
+let terminado = false;
+const fin = r => { if (!terminado) { terminado = true; done(r); } };
+mapa.once('rendercomplete', () => fin('ok'));
+setTimeout(() => fin('timeout_render'), 15000);
+mapa.getView().fit(ext, { padding: [60, 60, 60, 60], maxZoom: 17, duration: 0 });
+mapa.renderSync && mapa.renderSync();
+"""
+
+
+def recortar_zona_roja(img, margen=60, min_lado=400):
+    """Recorta la imagen a la zona que contiene los trazos rojos (tramos con radar).
+
+    Si no se detectan píxeles rojos devuelve la imagen original.
+    """
+    rgb = img.convert("RGB")
+    ancho, alto = rgb.size
+    # Rojo "puro" de los tramos: R alto, G y B bajos
+    r, g, b = rgb.split()
+    mascara = Image.eval(r, lambda v: 255 if v > 170 else 0)
+    mascara = ImageChops.multiply(mascara, Image.eval(g, lambda v: 255 if v < 90 else 0))
+    mascara = ImageChops.multiply(mascara, Image.eval(b, lambda v: 255 if v < 90 else 0))
+    bbox = mascara.getbbox()
+    if not bbox:
+        return img
+
+    left, top, right, bottom = bbox
+    left, top = max(0, left - margen), max(0, top - margen)
+    right, bottom = min(ancho, right + margen), min(alto, bottom + margen)
+
+    # Garantizar un tamaño mínimo para no quedarnos con un recorte diminuto
+    def ampliar(a, b, total):
+        falta = min_lado - (b - a)
+        if falta > 0:
+            a = max(0, a - falta // 2)
+            b = min(total, a + min_lado)
+            a = max(0, b - min_lado)
+        return a, b
+
+    left, right = ampliar(left, right, ancho)
+    top, bottom = ampliar(top, bottom, alto)
+    return img.crop((left, top, right, bottom))
+
+
 def extraer_canvas(driver):
-    """Extrae el contenido del canvas de la página y lo devuelve como un objeto de imagen en memoria."""
+    """Captura solo el mapa, encuadrado y ampliado en los tramos con radar, como imagen en memoria."""
     try:
         # Rechazar cookies si es necesario
         rechazar_cookies(driver)
 
-        # Ocultar elementos no deseados del mapa
+        # Esperar a que el mapa (OpenLayers) exista y ocultar sus controles
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, ".ol-viewport canvas"))
+        )
         ocultar_elementos(driver)
 
-        # Localizar el elemento canvas
-        canvas = driver.find_element(By.CSS_SELECTOR, "canvas.ol-unselectable")
+        viewport = driver.find_element(By.CSS_SELECTOR, ".ol-viewport")
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", viewport)
 
-        # Desplazar la página hasta que el canvas sea visible
-        driver.execute_script("arguments[0].scrollIntoView(true);", canvas)
-        logging.info("Canvas desplazado a la vista.")
+        # Encuadrar el mapa en los tramos y esperar a que termine de renderizar
+        driver.set_script_timeout(25)
+        try:
+            resultado = driver.execute_async_script(JS_ENCUADRAR_RADARES)
+        except Exception as e:
+            resultado = f"error_js: {e}"
+        logging.info(f"Encuadre del mapa en los radares: {resultado}")
+        if resultado != "ok":
+            # Sin acceso a la API del mapa: margen para que carguen las teselas
+            time.sleep(5)
 
-        # Esperar un momento para asegurarnos de que todo se haya renderizado
-        time.sleep(10)
+        # Captura únicamente del elemento del mapa (no de toda la web)
+        img = Image.open(BytesIO(viewport.screenshot_as_png))
 
-        # Tomar la captura de pantalla completa como objeto binario (para no guardarla)
-        screenshot = driver.get_screenshot_as_png()
-        
-        # Abrir la captura desde los datos en memoria
-        img = Image.open(BytesIO(screenshot))
-        
-        # Obtener el tamaño de la imagen original
-        width, height = img.size
+        # Recortar a la zona de los trazos rojos (refuerza/sustituye al encuadre JS)
+        img = recortar_zona_roja(img)
 
-        # Definir el recorte
-        left = 31
-        top = 1
-        right = width - 48
-        bottom = height - 52
-
-        # Recortar la imagen
-        img_recortada = img.crop((left, top, right, bottom))
-
-        # Guardamos la imagen en un buffer de memoria
         img_byte_array = BytesIO()
-        img_recortada.save(img_byte_array, format="PNG")
-        img_byte_array.seek(0)  # Rebobinar el buffer hasta el principio
+        img.save(img_byte_array, format="PNG")
+        img_byte_array.seek(0)
 
-        logging.info("Canvas capturado y convertido en imagen en memoria.")
-        return img_byte_array  # Retorna el buffer en memoria
+        logging.info(f"Mapa capturado ({img.size[0]}x{img.size[1]}) y convertido en imagen en memoria.")
+        return img_byte_array
     except Exception:
         logging.error("Error al extraer el canvas: %s", traceback.format_exc())
         raise # Propaga el error al `main`
