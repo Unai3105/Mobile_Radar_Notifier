@@ -35,3 +35,21 @@ def test_ubicaciones_se_escapan_en_html(notifier):
         mensaje, _, _ = notifier.enviar_mensaje_telegram([1], True, ["Calle <A> & B_*"])
     assert "<b>Calle &lt;A&gt; &amp; B_*</b>" in mensaje
     assert enviados[0]["parse_mode"] == "HTML"
+
+
+def test_recortar_zona_roja_centra_en_trazos_rojos():
+    from PIL import Image, ImageDraw
+    import telegram_radar_notifier as trn
+
+    img = Image.new("RGB", (2000, 1000), (230, 230, 230))
+    ImageDraw.Draw(img).line((900, 400, 1100, 500), fill=(220, 20, 20), width=6)
+    recorte = trn.recortar_zona_roja(img, margen=50, min_lado=100)
+    assert recorte.size[0] < 400 and recorte.size[1] < 300
+
+
+def test_recortar_zona_roja_sin_rojo_devuelve_original():
+    from PIL import Image
+    import telegram_radar_notifier as trn
+
+    img = Image.new("RGB", (800, 600), (230, 230, 230))
+    assert trn.recortar_zona_roja(img).size == (800, 600)
