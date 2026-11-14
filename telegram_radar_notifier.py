@@ -3,6 +3,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 from pymongo import MongoClient
 from selenium import webdriver
 from datetime import datetime, timezone
@@ -115,13 +116,77 @@ def ocultar_elementos(driver):
         logging.error(f"Error al ocultar los elementos: {e}")
         raise # Propaga el error al `main`
 
+class WebNoDisponible(Exception):
+    """La web de radares no mostró el contenido esperado tras todos los reintentos."""
+
+
+# Esperas (s) por intento para localizar "span12": la primera es la habitual y
+# las siguientes son más largas, por si la web municipal va lenta.
+ESPERAS_SPAN12 = (30, 60, 60, 60)
+# Pausa (s) antes de recargar la página tras cada fallo (backoff)
+PAUSAS_REINTENTO = (5, 15, 45)
+MAX_HTML_DIAGNOSTICO = 3000
+
+
+def registrar_diagnostico(driver, url=None):
+    """Vuelca en el log el título y un trozo acotado del HTML para depurar. No registra la URL."""
+    try:
+        titulo = driver.title
+    except Exception:
+        titulo = "<no disponible>"
+    try:
+        cuerpo = driver.find_element(By.TAG_NAME, "body").get_attribute("outerHTML") or ""
+    except Exception:
+        cuerpo = "<no disponible>"
+    if url:
+        # Por si la URL (secreta) aparece en enlaces del HTML
+        cuerpo = cuerpo.replace(url, "<URL>")
+    logging.error("Diagnóstico de la página: título=%r", titulo)
+    logging.error("Diagnóstico de la página: primeros %s caracteres del body:\n%s",
+                  MAX_HTML_DIAGNOSTICO, cuerpo[:MAX_HTML_DIAGNOSTICO])
+
+
+def esperar_contenido_radares(driver, url=None, esperas=None, pausas=None):
+    """Espera a que aparezca "span12"; si no, recarga la página y reintenta con esperas mayores.
+
+    Si tras todos los reintentos sigue sin aparecer, vuelca un diagnóstico en el log,
+    avisa solo al administrador y lanza WebNoDisponible.
+    """
+    esperas = ESPERAS_SPAN12 if esperas is None else esperas
+    pausas = PAUSAS_REINTENTO if pausas is None else pausas
+    url = donosti_radar_web_url if url is None else url
+
+    for intento, espera in enumerate(esperas):
+        try:
+            WebDriverWait(driver, espera).until(
+                EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
+            )
+            if intento:
+                logging.info("Contenido encontrado tras %s reintento(s).", intento)
+            return
+        except TimeoutException:
+            logging.warning("No apareció 'span12' en %s s (intento %s/%s).", espera, intento + 1, len(esperas))
+            if intento + 1 < len(esperas):
+                time.sleep(pausas[min(intento, len(pausas) - 1)] if pausas else 0)
+                try:
+                    cargar_pagina(driver, url)
+                except Exception:
+                    logging.warning("Fallo al recargar la página: %s", traceback.format_exc())
+
+    registrar_diagnostico(driver, url)
+    enviar_aviso_admin(
+        "⚠️ Mobile Radar Notifier: la web de radares no cargó el contenido esperado "
+        f"tras {len(esperas)} intentos. No se ha enviado nada a los usuarios. "
+        "Revisa el log del job en GitHub Actions."
+    )
+    raise WebNoDisponible("No apareció 'span12' tras todos los reintentos")
+
+
 def comprobar_radares(driver):
     """Verifica si hay radares móviles planificados para hoy y devuelve las ubicaciones (vacías si no hay)."""
     try:
-        # Esperar explícitamente a que los elementos con la clase "span12" estén presentes en el DOM
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
-        )
+        # Esperar (con recargas y reintentos) a que los elementos "span12" estén presentes en el DOM
+        esperar_contenido_radares(driver)
 
         # Buscar todos los elementos con la clase "span12"
         elementos_span12 = driver.find_elements(By.CLASS_NAME, "span12")
@@ -163,6 +228,8 @@ def comprobar_radares(driver):
         logging.warning("Estado de radares desconocido o no planificado.")
         return None
 
+    except WebNoDisponible:
+        raise  # Ya se registró el diagnóstico y se avisó al administrador
     except Exception:
         logging.error("Error al comprobar los radares: %s", traceback.format_exc())
         raise  # Propaga el error al `main`
@@ -583,6 +650,9 @@ def main():
             ids_sent=ids_sent,
             ids_error=ids_error
         )
+
+    except WebNoDisponible:
+        raise  # El administrador ya fue avisado con detalle; el job termina en error
 
     except Exception:
         enviar_aviso_admin("⚠️ Mobile Radar Notifier: la ejecución ha fallado. Revisa GitHub Actions.")
