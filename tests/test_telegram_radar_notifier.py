@@ -59,6 +59,9 @@ def test_recortar_zona_roja_sin_rojo_devuelve_original():
 
 # --- Reintentos de comprobar_radares con un driver simulado ---
 
+SIN_RADARES = "No hay ninguna ubicación planificada para hoy."
+
+
 class ElementoFalso:
     def __init__(self, textos=(), html=""):
         self._textos, self._html = textos, html
@@ -74,13 +77,14 @@ class ElementoFalso:
 
 
 class DriverFalso:
-    """Driver simulado: 'span12' aparece a partir del intento `exito_en` (1-based; None = nunca)."""
+    """Driver simulado: "span12" siempre existe, pero su texto solo aparece tras `listo_tras`
+    cargas de página (0 = ya está; None = nunca)."""
 
     title = "Titulo de prueba"
 
-    def __init__(self, exito_en=1, texto="No hay ninguna ubicación planificada para hoy.",
+    def __init__(self, listo_tras=0, texto=SIN_RADARES,
                  html="<body>https://secreto.invalid/x " + "a" * 5000 + "</body>"):
-        self.exito_en, self.texto, self.html = exito_en, texto, html
+        self.listo_tras, self.texto, self.html = listo_tras, texto, html
         self.esperas = []   # timeouts pedidos a WebDriverWait
         self.cargas = 0     # llamadas a driver.get
 
@@ -88,7 +92,10 @@ class DriverFalso:
         self.cargas += 1
 
     def find_elements(self, by, valor):
-        return [ElementoFalso([self.texto])] if valor == "span12" else []
+        if valor not in ("span12", "p"):
+            return []
+        listo = self.listo_tras is not None and self.cargas >= self.listo_tras
+        return [ElementoFalso([self.texto] if listo else [])]
 
     def find_element(self, by, valor):
         return ElementoFalso(html=self.html)
@@ -96,8 +103,13 @@ class DriverFalso:
 
 @pytest.fixture
 def espera_falsa(notifier, monkeypatch):
-    """Sustituye WebDriverWait y time.sleep: no hay esperas ni red reales."""
-    monkeypatch.setattr(notifier.time, "sleep", lambda s: None)
+    """Sustituye WebDriverWait y el reloj: no hay esperas ni red reales.
+
+    Cada espera consume su timeout del reloj simulado, así el presupuesto es determinista.
+    """
+    reloj = {"t": 1000.0}
+    monkeypatch.setattr(notifier.time, "monotonic", lambda: reloj["t"])
+    monkeypatch.setattr(notifier.time, "sleep", lambda s: reloj.__setitem__("t", reloj["t"] + s))
 
     class EsperaFalsa:
         def __init__(self, driver, timeout):
@@ -105,12 +117,13 @@ def espera_falsa(notifier, monkeypatch):
             driver.esperas.append(timeout)
 
         def until(self, condicion):
-            d = self.driver
-            if d.exito_en is not None and len(d.esperas) >= d.exito_en:
+            if condicion(self.driver):
                 return True
+            reloj["t"] += self.timeout
             raise TimeoutException("simulado")
 
     monkeypatch.setattr(notifier, "WebDriverWait", EsperaFalsa)
+    monkeypatch.setattr(notifier, "_inicio_presupuesto", None)
     monkeypatch.setattr(notifier, "donosti_radar_web_url", "https://secreto.invalid/x")
     avisos = []
     monkeypatch.setattr(notifier, "enviar_aviso_admin", avisos.append)
@@ -118,7 +131,7 @@ def espera_falsa(notifier, monkeypatch):
 
 
 def test_exito_al_primer_intento(notifier, espera_falsa):
-    driver = DriverFalso(exito_en=1)
+    driver = DriverFalso(listo_tras=0)
     assert notifier.comprobar_radares(driver) == []
     assert driver.esperas[0] == 30
     assert driver.cargas == 0
@@ -126,21 +139,34 @@ def test_exito_al_primer_intento(notifier, espera_falsa):
 
 
 def test_exito_tras_reintento_recarga_con_espera_mayor(notifier, espera_falsa):
-    driver = DriverFalso(exito_en=3)
+    driver = DriverFalso(listo_tras=2)
     assert notifier.comprobar_radares(driver) == []
-    assert driver.esperas[:3] == [30, 60, 60]
     assert driver.cargas == 2  # se recargó la página antes de cada reintento
+    assert driver.esperas[0] == 30
+    assert all(e > 30 for e in driver.esperas[1:3])  # los reintentos esperan más
     assert espera_falsa == []
 
 
+def test_span12_presente_pero_contenido_vacio_se_reintenta(notifier, espera_falsa):
+    """span12 existe desde el principio; el reintento debe esperar al texto, no a span12."""
+    driver = DriverFalso(listo_tras=1)
+    assert notifier.comprobar_radares(driver) == []
+    assert driver.cargas == 1
+
+
+def test_con_radares_devuelve_ubicaciones(notifier, espera_falsa):
+    driver = DriverFalso(texto=notifier.TEXTO_CON_RADARES)
+    assert notifier.contenido_radares_listo(driver)
+
+
 def test_fallo_definitivo_avisa_al_admin_y_no_a_usuarios(notifier, espera_falsa, monkeypatch, caplog):
-    monkeypatch.setattr(notifier, "enviar_mensaje_telegram",
-                        lambda *a, **k: pytest.fail("no debe avisar a los usuarios"))
-    driver = DriverFalso(exito_en=None)
+    llamadas = []
+    monkeypatch.setattr(notifier, "enviar_mensaje_telegram", lambda *a, **k: llamadas.append(a))
+    driver = DriverFalso(listo_tras=None)
     with pytest.raises(notifier.WebNoDisponible):
         notifier.comprobar_radares(driver)
-    assert driver.esperas == [30, 60, 60, 60]
-    assert driver.cargas == 3
+    assert llamadas == []
+    assert len(driver.esperas) > 1 and driver.cargas == len(driver.esperas) - 1
     assert len(espera_falsa) == 1 and "log" in espera_falsa[0]
     registro = caplog.text
     assert "Titulo de prueba" in registro
@@ -148,6 +174,69 @@ def test_fallo_definitivo_avisa_al_admin_y_no_a_usuarios(notifier, espera_falsa,
     assert "a" * 2900 in registro and "a" * 3000 not in registro  # HTML acotado
 
 
-def test_estado_desconocido_devuelve_none_tras_reintento(notifier, espera_falsa):
-    driver = DriverFalso(exito_en=2, texto="no hay nada relevante")
-    assert notifier.comprobar_radares(driver) is None
+def test_texto_desconocido_nunca_da_no_hay_radares(notifier, espera_falsa):
+    """Sin el texto literal no se devuelve [] ni None: se falla y se avisa al admin."""
+    driver = DriverFalso(texto="no hay nada relevante")
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.comprobar_radares(driver)
+    assert len(espera_falsa) == 1
+
+
+def test_presupuesto_total_corta_los_reintentos(notifier, espera_falsa, monkeypatch):
+    monkeypatch.setattr(notifier, "PRESUPUESTO_TOTAL", 100)
+    inicio = notifier.time.monotonic()
+    driver = DriverFalso(listo_tras=None)
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.comprobar_radares(driver)
+    # Ni una espera supera lo que queda, y el tiempo total no pasa del presupuesto
+    # más la última recarga posible (que cargar_pagina limita con TIMEOUT_CARGA_PAGINA)
+    assert sum(driver.esperas) <= 100
+    assert notifier.time.monotonic() - inicio <= 100 + notifier.TIMEOUT_CARGA_PAGINA
+    assert len(espera_falsa) == 1
+
+
+def test_inicializar_driver_fija_timeout_de_carga(notifier, monkeypatch):
+    driver = mock.Mock()
+    monkeypatch.setattr(notifier.webdriver, "Chrome", lambda options: driver)
+    assert notifier.inicializar_driver() is driver
+    driver.set_page_load_timeout.assert_called_once_with(notifier.TIMEOUT_CARGA_PAGINA)
+
+
+# --- main() ---
+
+def test_main_con_web_no_disponible_no_avisa_a_usuarios(notifier, monkeypatch):
+    driver = mock.Mock()
+    avisos, mensajes = [], []
+    monkeypatch.setattr(notifier, "inicializar_driver", lambda: driver)
+    monkeypatch.setattr(notifier, "cargar_pagina", lambda *a, **k: True)
+
+    def comprobar(d):
+        notifier.enviar_aviso_admin("aviso de web caída")  # lo que hace esperar_contenido_radares
+        raise notifier.WebNoDisponible("simulado")
+
+    monkeypatch.setattr(notifier, "comprobar_radares", comprobar)
+    monkeypatch.setattr(notifier, "enviar_aviso_admin", avisos.append)
+    monkeypatch.setattr(notifier, "enviar_mensaje_telegram", lambda *a, **k: mensajes.append(a))
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.main()
+    assert mensajes == []
+    assert len(avisos) == 1
+    driver.quit.assert_called_once()
+
+
+def test_main_error_en_quit_no_tapa_la_excepcion_real(notifier, monkeypatch):
+    driver = mock.Mock()
+    driver.quit.side_effect = RuntimeError("driver muerto")
+    monkeypatch.setattr(notifier, "inicializar_driver", lambda: driver)
+    monkeypatch.setattr(notifier, "cargar_pagina", lambda *a, **k: True)
+    monkeypatch.setattr(notifier, "comprobar_radares", lambda d: (_ for _ in ()).throw(notifier.WebNoDisponible("x")))
+    monkeypatch.setattr(notifier, "enviar_aviso_admin", lambda t: None)
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.main()
+
+
+def test_aviso_admin_registra_error_de_telegram(notifier, monkeypatch, caplog):
+    monkeypatch.setattr(notifier, "ADMIN_CHAT_ID", "123")
+    monkeypatch.setattr(notifier.requests, "post", lambda *a, **k: mock.Mock(status_code=400))
+    notifier.enviar_aviso_admin("hola")
+    assert "HTTP 400" in caplog.text

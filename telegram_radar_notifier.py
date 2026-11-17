@@ -65,11 +65,17 @@ def inicializar_driver():
     """Inicializa y devuelve el driver de Chrome con configuraciones avanzadas."""
     try:
         driver = webdriver.Chrome(options=chrome_options)  # Selenium Manager gestiona el chromedriver
+        # Sin esto un driver.get puede colgarse hasta 300 s y agotar el límite del job
+        driver.set_page_load_timeout(TIMEOUT_CARGA_PAGINA)
         logging.info("Driver de Chrome inicializado exitosamente en modo headless.")
         return driver
     except Exception:
         logging.error("Error al inicializar el driver de Chrome: %s", traceback.format_exc())
         return None
+
+# Timeout (s) de carga de una página en el driver
+TIMEOUT_CARGA_PAGINA = 60
+
 
 def cargar_pagina(driver, donosti_radar_web_url, max_retries=3):
     """Carga la página y reintenta en caso de fallos."""
@@ -125,6 +131,14 @@ class WebNoDisponible(Exception):
 ESPERAS_SPAN12 = (30, 60, 60, 60)
 # Pausa (s) antes de recargar la página tras cada fallo (backoff)
 PAUSAS_REINTENTO = (5, 15, 45)
+# Presupuesto total (s) para obtener el contenido, contado desde el inicio de main().
+# El job de Actions muere a los 900 s: se deja margen para la última recarga
+# (TIMEOUT_CARGA_PAGINA), el aviso al administrador y el cierre del driver.
+PRESUPUESTO_TOTAL = 540
+_inicio_presupuesto = None  # time.monotonic() al arrancar main()
+
+TEXTO_SIN_RADARES = "No hay ninguna ubicación planificada para hoy."
+TEXTO_CON_RADARES = "el radar móvil estará operando en las siguientes ubicaciones"
 MAX_HTML_DIAGNOSTICO = 3000
 
 
@@ -146,40 +160,63 @@ def registrar_diagnostico(driver, url=None):
                   MAX_HTML_DIAGNOSTICO, cuerpo[:MAX_HTML_DIAGNOSTICO])
 
 
-def esperar_contenido_radares(driver, url=None, esperas=None, pausas=None):
-    """Espera a que aparezca "span12"; si no, recarga la página y reintenta con esperas mayores.
+def contenido_radares_listo(driver):
+    """True si algún "span12" ya contiene el texto de "sin radares" o el de "radar operando"."""
+    for elemento in driver.find_elements(By.CLASS_NAME, "span12"):
+        texto = elemento.text or ""
+        if TEXTO_SIN_RADARES in texto or TEXTO_CON_RADARES in texto:
+            return True
+    return False
 
-    Si tras todos los reintentos sigue sin aparecer, vuelca un diagnóstico en el log,
-    avisa solo al administrador y lanza WebNoDisponible.
+
+def esperar_contenido_radares(driver, url=None, esperas=None, pausas=None, presupuesto=None):
+    """Espera a que "span12" contenga el texto real de la web; si no, recarga y reintenta.
+
+    Las esperas se acortan para no superar el presupuesto total. Si se agotan los
+    reintentos o el presupuesto, vuelca un diagnóstico en el log, avisa solo al
+    administrador y lanza WebNoDisponible.
     """
     esperas = ESPERAS_SPAN12 if esperas is None else esperas
     pausas = PAUSAS_REINTENTO if pausas is None else pausas
     url = donosti_radar_web_url if url is None else url
 
+    presupuesto = PRESUPUESTO_TOTAL if presupuesto is None else presupuesto
+    inicio = _inicio_presupuesto if _inicio_presupuesto is not None else time.monotonic()
+    limite = inicio + presupuesto
+
+    intentos = 0
     for intento, espera in enumerate(esperas):
+        restante = limite - time.monotonic()
+        if restante <= 0:
+            logging.warning("Presupuesto de tiempo agotado antes del intento %s.", intento + 1)
+            break
+        intentos += 1
         try:
-            WebDriverWait(driver, espera).until(
-                EC.presence_of_all_elements_located((By.CLASS_NAME, "span12"))
-            )
+            WebDriverWait(driver, min(espera, restante)).until(contenido_radares_listo)
             if intento:
                 logging.info("Contenido encontrado tras %s reintento(s).", intento)
             return
         except TimeoutException:
-            logging.warning("No apareció 'span12' en %s s (intento %s/%s).", espera, intento + 1, len(esperas))
+            logging.warning("No apareció el contenido de radares en %s s (intento %s/%s).",
+                            min(espera, restante), intento + 1, len(esperas))
             if intento + 1 < len(esperas):
-                time.sleep(pausas[min(intento, len(pausas) - 1)] if pausas else 0)
+                pausa = pausas[min(intento, len(pausas) - 1)] if pausas else 0
+                if limite - time.monotonic() <= pausa + TIMEOUT_CARGA_PAGINA:
+                    logging.warning("No queda presupuesto para otra recarga.")
+                    break
+                time.sleep(pausa)
                 try:
-                    cargar_pagina(driver, url)
+                    cargar_pagina(driver, url, max_retries=1)
                 except Exception:
                     logging.warning("Fallo al recargar la página: %s", traceback.format_exc())
 
     registrar_diagnostico(driver, url)
     enviar_aviso_admin(
         "⚠️ Mobile Radar Notifier: la web de radares no cargó el contenido esperado "
-        f"tras {len(esperas)} intentos. No se ha enviado nada a los usuarios. "
+        f"tras {intentos} intento(s). No se ha enviado nada a los usuarios. "
         "Revisa el log del job en GitHub Actions."
     )
-    raise WebNoDisponible("No apareció 'span12' tras todos los reintentos")
+    raise WebNoDisponible("No apareció el contenido de radares tras todos los reintentos")
 
 
 def comprobar_radares(driver):
@@ -211,12 +248,12 @@ def comprobar_radares(driver):
                 texto_parrafo = parrafo.text
 
                 # Caso en que no hay radares para hoy
-                if "No hay ninguna ubicación planificada para hoy." in texto_parrafo:
+                if TEXTO_SIN_RADARES in texto_parrafo:
                     logging.info("No hay radares móviles planificados para hoy.")
                     return ubicaciones  # Retornar lista vacía
 
                 # Caso en que hay radares planificados para hoy
-                elif "el radar móvil estará operando en las siguientes ubicaciones" in texto_parrafo:
+                elif TEXTO_CON_RADARES in texto_parrafo:
                     # Verificar si hay al menos un párrafo siguiente para evitar IndexError
                     if i + 1 < len(parrafos):
                         # Reubicar los elementos antes de acceder a ellos
@@ -530,7 +567,9 @@ def enviar_aviso_admin(texto):
         logging.warning("ADMIN_CHAT_ID no configurado: no se envía el aviso al administrador.")
         return
     try:
-        requests.post(SEND_MESSAGE_URL, data={'chat_id': ADMIN_CHAT_ID, 'text': texto}, timeout=30)
+        respuesta = requests.post(SEND_MESSAGE_URL, data={'chat_id': ADMIN_CHAT_ID, 'text': texto}, timeout=30)
+        if respuesta.status_code != 200:
+            logging.error("Telegram rechazó el aviso al administrador (HTTP %s).", respuesta.status_code)
     except Exception:
         logging.error("Error al enviar el aviso al administrador: %s", traceback.format_exc())
 
@@ -591,6 +630,9 @@ def registrar_monitoreo_mensajes(scrapping_time, has_radar, locations, message_s
 
 def main():
     """Función principal que inicializa el driver, carga la página, verifica el estado y envía el mensaje por Telegram."""
+
+    global _inicio_presupuesto
+    _inicio_presupuesto = time.monotonic()
 
     # Inicializar el driver
     driver = inicializar_driver()
@@ -660,8 +702,12 @@ def main():
 
     finally:
         # Cerrar el driver siempre, aunque haya errores
-        driver.quit()
-        logging.info("Driver de Chrome cerrado correctamente.")
+        # Si el driver murió, quit() puede lanzar y taparía la excepción real
+        try:
+            driver.quit()
+            logging.info("Driver de Chrome cerrado correctamente.")
+        except Exception:
+            logging.warning("No se pudo cerrar el driver: %s", traceback.format_exc())
 
 
 
