@@ -114,8 +114,9 @@ probe is taken, and the admin alert states the cause (see `diagnostico_web.py`):
 | `contenido_no_encontrado` | Page loads fine but the expected text is not there: the site may have changed (compare `contenido.hash`/`inicio`) |
 | `estructura_desconocida`, `chrome_no_inicia`, `error_interno` | Scraper-side problems |
 
-On failure the page HTML (secret URL removed) and a screenshot are uploaded as the
-`evidencias-fallo` artifact (30 days). The manual workflow `diagnostico_scraper.yml` runs the probe and
+On failure the page HTML (secret URL, path and query redacted) is uploaded as the
+`evidencias-fallo` artifact (30 days). Screenshots are off by default (they cannot be redacted);
+set `EVIDENCIAS_CAPTURA=1` to include them. The manual workflow `diagnostico_scraper.yml` runs the probe and
 the scraper without sending anything to users.
 
 ---

@@ -37,8 +37,8 @@ def test_sonda_correcta_registra_todas_las_fases(red_ok):
     s = sondear_red(URL, {"sin": "hola", "con": "adios"})
     assert s["ok"] and s["fallo"] is None
     assert set(s["fases_ms"]) == {"dns", "tcp", "tls", "http"}
-    assert (s["host"], s["ip_destino"], s["ip_runner"], s["http_status"], s["bytes"]) == (
-        "secreto.invalid", "5.6.7.8", "9.9.9.9", 200, 4)
+    assert (s["ip_destino"], s["ip_runner"], s["http_status"], s["bytes"]) == ("5.6.7.8", "9.9.9.9", 200, 4)
+    assert "host" not in s
     assert s["textos_en_html"] == {"sin": True, "con": False}
 
 
@@ -81,14 +81,71 @@ def test_sonda_fallo_tls_cierra_la_conexion(red_ok, monkeypatch):
     conexion.close.assert_called()
 
 
-def test_sonda_http_timeout_y_no_filtra_la_url(red_ok, monkeypatch):
+def test_sonda_http_timeout_y_no_guarda_nada_que_pueda_contener_la_url(red_ok, monkeypatch):
     def falla(*a, **k):
-        raise requests.exceptions.ReadTimeout(f"Read timed out en {URL}")
+        # Formato real de requests: solo ruta y query, sin esquema ni host completo
+        raise requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool(host='secreto.invalid', port=443): Max retries exceeded "
+            "with url: /ruta?token=abc (Caused by ReadTimeoutError: Read timed out)")
     monkeypatch.setattr(dw.requests, "get", falla)
     s = sondear_red(URL)
     assert s["fallo"]["fase"] == "http" and s["fallo"]["timeout"]
     assert dw.clasificar_causa(s) == "http_timeout"
-    assert "secreto.invalid/ruta" not in s["fallo"]["mensaje"] and "<URL>" in s["fallo"]["mensaje"]
+    assert set(s["fallo"]) == {"fase", "tipo", "timeout"}  # sin mensaje
+    assert "secreto" not in str(s) and "token" not in str(s) and "/ruta" not in str(s)
+
+
+def test_sonda_ipv4_primero_y_prueba_todas_las_direcciones(red_ok, monkeypatch):
+    monkeypatch.setattr(dw.socket, "getaddrinfo", lambda *a, **k: [
+        (0, 0, 0, "", ("2001:db8::1", 443, 0, 0)), (0, 0, 0, "", ("5.6.7.8", 443))])
+    intentos = []
+
+    def conectar(direccion, timeout):
+        intentos.append(direccion[0])
+        if ":" in direccion[0]:
+            raise OSError("sin ruta IPv6")
+        return mock.MagicMock()
+    monkeypatch.setattr(dw.socket, "create_connection", conectar)
+    s = sondear_red(URL)
+    assert intentos == ["5.6.7.8"] and s["ok"] and s["ip_destino"] == "5.6.7.8"
+
+
+def test_sonda_si_ninguna_ip_conecta_falla_en_tcp(red_ok, monkeypatch):
+    monkeypatch.setattr(dw.socket, "getaddrinfo", lambda *a, **k: [
+        (0, 0, 0, "", ("5.6.7.8", 443)), (0, 0, 0, "", ("2001:db8::1", 443, 0, 0))])
+
+    def falla(*a, **k):
+        raise socket.timeout("timed out")
+    monkeypatch.setattr(dw.socket, "create_connection", falla)
+    s = sondear_red(URL)
+    assert s["fallo"]["fase"] == "tcp" and dw.clasificar_causa(s) == "red_tcp_timeout"
+
+
+def test_sonda_respeta_el_limite_total(red_ok, monkeypatch):
+    reloj = {"t": 0.0}
+    monkeypatch.setattr(dw.time, "monotonic", lambda: reloj["t"])
+
+    def lenta(*a, **k):
+        reloj["t"] += 25  # la conexión TCP "tarda" 25 s
+        return mock.MagicMock()
+    monkeypatch.setattr(dw.socket, "create_connection", lenta)
+    s = sondear_red(URL, limite_total=20)
+    assert s["fallo"]["fase"] == "tls" and s["fallo"]["timeout"]  # el límite se agotó antes del TLS
+
+
+def test_ocultar_url_en_todas_sus_formas():
+    url = "https://secreto.invalid/privado/abc?k=1&z=2"
+    formas = [url, url + "/", "secreto.invalid/privado/abc?k=1&z=2", "/privado/abc?k=1&z=2",
+              url.replace("/", "\\/"), dw.quote(url, safe=""), dw.html_lib.escape(url), "k=1&z=2"]
+    for forma in formas:
+        limpio = dw.ocultar_url(f"antes {forma} después", url)
+        assert "privado" not in limpio and "k=1" not in limpio, forma
+    assert dw.ocultar_url("sin nada secreto", url) == "sin nada secreto"
+    assert dw.ocultar_url("texto", None) == "texto"
+
+
+def test_ocultar_url_no_destruye_texto_por_una_ruta_trivial():
+    assert dw.ocultar_url("a/b a / c", "https://x.invalid/") == "a/b a / c"
 
 
 @pytest.mark.parametrize("status", [403, 503])
@@ -149,19 +206,28 @@ def test_evidencia_sin_directorio_no_escribe_nada():
     assert dw.guardar_evidencia(None, mock.Mock(), URL) == []
 
 
-def test_evidencia_guarda_html_sin_url_y_captura(tmp_path):
-    driver = mock.Mock(page_source=f"<a href='{URL}'>x</a>")
+def test_evidencia_por_defecto_guarda_html_redactado_y_no_la_captura(tmp_path):
+    driver = mock.Mock(page_source=f"<a href='{URL}'>x</a> /ruta?token=abc")
     driver.get_screenshot_as_png.return_value = b"PNG"
     escritos = dw.guardar_evidencia(str(tmp_path / "ev"), driver, URL)
-    assert escritos == ["fallo.html", "fallo.png"]
-    assert URL not in (tmp_path / "ev" / "fallo.html").read_text() and "<URL>" in (tmp_path / "ev" / "fallo.html").read_text()
-    assert (tmp_path / "ev" / "fallo.png").read_bytes() == b"PNG"
+    assert escritos == ["fallo.html"]
+    html = (tmp_path / "ev" / "fallo.html").read_text()
+    assert "secreto" not in html and "token" not in html and "<URL>" in html
+    assert not (tmp_path / "ev" / "fallo.png").exists()
+    driver.get_screenshot_as_png.assert_not_called()
+
+
+def test_evidencia_con_captura_explicita(tmp_path):
+    driver = mock.Mock(page_source="<p>ok</p>")
+    driver.get_screenshot_as_png.return_value = b"PNG"
+    assert dw.guardar_evidencia(str(tmp_path), driver, URL, con_captura=True) == ["fallo.html", "fallo.png"]
+    assert (tmp_path / "fallo.png").read_bytes() == b"PNG"
 
 
 def test_evidencia_si_falla_la_captura_guarda_el_html(tmp_path):
     driver = mock.Mock(page_source="<p>ok</p>")
     driver.get_screenshot_as_png.side_effect = RuntimeError("sin pantalla")
-    assert dw.guardar_evidencia(str(tmp_path), driver, URL) == ["fallo.html"]
+    assert dw.guardar_evidencia(str(tmp_path), driver, URL, con_captura=True) == ["fallo.html"]
 
 
 # --- registro ---

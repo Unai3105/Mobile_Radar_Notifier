@@ -52,7 +52,7 @@ jobs:
       run: |
         python telegram_radar_notifier.py
 
-    # Evidencias del fallo (HTML sin la URL secreta + captura): solo existen si el scraping falló
+    # Evidencias del fallo (HTML con la URL secreta redactada; sin captura de pantalla): solo existen si el scraping falló
     - name: Subir evidencias del fallo
       if: always()
       uses: actions/upload-artifact@v4

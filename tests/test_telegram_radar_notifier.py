@@ -294,8 +294,27 @@ def test_fallo_guarda_evidencias_si_hay_directorio(notifier, espera_falsa, monke
     driver.get_screenshot_as_png = lambda: b"PNG"
     with pytest.raises(notifier.WebNoDisponible):
         notifier.comprobar_radares(driver)
-    assert notifier._estado["evidencias"] == ["fallo.html", "fallo.png"]
+    assert notifier._estado["evidencias"] == ["fallo.html"]  # la captura es opt-in
     assert "secreto.invalid" not in (tmp_path / "fallo.html").read_text()
+
+
+def test_captura_de_evidencia_solo_si_se_activa(notifier, espera_falsa, monkeypatch, tmp_path):
+    monkeypatch.setattr(notifier, "EVIDENCIAS_DIR", str(tmp_path))
+    monkeypatch.setattr(notifier, "EVIDENCIAS_CAPTURA", True)
+    driver = DriverFalso(listo_tras=None)
+    driver.page_source = "<body></body>"
+    driver.get_screenshot_as_png = lambda: b"PNG"
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.comprobar_radares(driver)
+    assert notifier._estado["evidencias"] == ["fallo.html", "fallo.png"]
+
+
+def test_diagnostico_de_pagina_oculta_ruta_y_query_de_la_url(notifier, espera_falsa, monkeypatch, caplog):
+    monkeypatch.setattr(notifier, "donosti_radar_web_url", "https://secreto.invalid/privado/abc?k=1")
+    driver = DriverFalso(listo_tras=None, html="<body>/privado/abc?k=1 y https:\\/\\/secreto.invalid</body>")
+    with pytest.raises(notifier.WebNoDisponible):
+        notifier.comprobar_radares(driver)
+    assert "privado" not in caplog.text and "k=1" not in caplog.text
 
 
 def test_si_el_diagnostico_revienta_el_fallo_sigue_siendo_web_no_disponible(notifier, espera_falsa, monkeypatch):
@@ -362,12 +381,34 @@ def test_main_error_interno_se_registra(notifier, monkeypatch):
     assert doc["causa"] == "error_interno" and doc["error"] == "ValueError"
 
 
+def test_main_chrome_no_inicia_avisa_antes_de_registrar(notifier, monkeypatch):
+    orden = []
+    monkeypatch.setattr(notifier, "inicializar_driver", lambda: None)
+    monkeypatch.setattr(notifier, "enviar_aviso_admin", lambda t: orden.append("aviso"))
+    monkeypatch.setattr(notifier, "registrar_ejecucion", lambda: orden.append("registro"))
+    with pytest.raises(SystemExit):
+        notifier.main()
+    assert orden == ["aviso", "registro"]
+
+
 def test_main_chrome_no_inicia_se_registra(notifier, monkeypatch):
     monkeypatch.setattr(notifier, "inicializar_driver", lambda: None)
     monkeypatch.setattr(notifier, "enviar_aviso_admin", lambda t: None)
     with pytest.raises(SystemExit):
         notifier.main()
     assert notifier.collection_ejecuciones.find_one()["causa"] == "chrome_no_inicia"
+
+
+def test_main_estructura_desconocida_guarda_evidencias_y_sonda(notifier, monkeypatch, tmp_path):
+    driver = preparar_main(notifier, monkeypatch, locations=None)
+    driver.page_source = "<body>web cambiada</body>"
+    monkeypatch.setattr(notifier, "EVIDENCIAS_DIR", str(tmp_path))
+    with pytest.raises(SystemExit):
+        notifier.main()
+    doc = notifier.collection_ejecuciones.find_one()
+    assert doc["causa"] == "estructura_desconocida" and doc["evidencias"] == ["fallo.html"]
+    assert doc["sonda_post_fallo"]["http_status"] == 200
+    assert (tmp_path / "fallo.html").read_text() == "<body>web cambiada</body>"
 
 
 def test_main_error_posterior_al_scraping_conserva_el_resultado(notifier, monkeypatch):

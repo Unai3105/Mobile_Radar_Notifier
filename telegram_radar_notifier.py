@@ -60,6 +60,8 @@ collection_ejecuciones = db[MONGO_COLLECTION_EJECUCIONES]
 
 # Si se define, en un fallo se guardan ahí el HTML y una captura (el workflow las sube como artefacto)
 EVIDENCIAS_DIR = os.getenv("EVIDENCIAS_DIR")
+# La captura de pantalla no se puede redactar: solo se guarda si EVIDENCIAS_CAPTURA=1
+EVIDENCIAS_CAPTURA = os.getenv("EVIDENCIAS_CAPTURA") == "1"
 
 
 
@@ -172,7 +174,8 @@ def _reiniciar_estado():
 
 def _html_body(driver):
     try:
-        return driver.find_element(By.TAG_NAME, "body").get_attribute("outerHTML") or ""
+        cuerpo = driver.find_element(By.TAG_NAME, "body").get_attribute("outerHTML")
+        return cuerpo if isinstance(cuerpo, str) else ""
     except Exception:
         return ""
 
@@ -209,7 +212,8 @@ def diagnosticar_fallo(driver, url):
         causa = diagnostico_web.clasificar_causa(sonda, error_navegador)
         _estado["causa"] = causa
         _estado["contenido"] = diagnostico_web.resumen_texto(texto_span12(driver))
-        _estado["evidencias"] = diagnostico_web.guardar_evidencia(EVIDENCIAS_DIR, driver, url)
+        _estado["evidencias"] = diagnostico_web.guardar_evidencia(
+            EVIDENCIAS_DIR, driver, url, con_captura=EVIDENCIAS_CAPTURA)
         logging.error("Causa del fallo: %s | %s", causa, diagnostico_web.resumen_sonda(sonda))
         return causa, diagnostico_web.resumen_sonda(sonda)
     except Exception:
@@ -229,7 +233,7 @@ def registrar_diagnostico(driver, url=None):
         cuerpo = "<no disponible>"
     if url:
         # Por si la URL (secreta) aparece en enlaces del HTML
-        cuerpo = cuerpo.replace(url, "<URL>")
+        cuerpo = diagnostico_web.ocultar_url(cuerpo, url)
     logging.error("Diagnóstico de la página: título=%r", titulo)
     logging.error("Diagnóstico de la página: primeros %s caracteres del body:\n%s",
                   MAX_HTML_DIAGNOSTICO, cuerpo[:MAX_HTML_DIAGNOSTICO])
@@ -720,15 +724,15 @@ def main():
     _reiniciar_estado()
 
     # Sonda de red previa (no lanza): sirve de referencia si luego falla la carga de la web
-    _estado["sonda_inicial"] = diagnostico_web.sondear_red(donosti_radar_web_url, TEXTOS_SONDA)
+    _estado["sonda_inicial"] = diagnostico_web.sondear_red(donosti_radar_web_url, TEXTOS_SONDA, limite_total=20)
     logging.info("Sonda de red inicial: %s", diagnostico_web.resumen_sonda(_estado["sonda_inicial"]))
 
     # Inicializar el driver
     driver = inicializar_driver()
     if not driver:
         _estado["causa"] = "chrome_no_inicia"
-        registrar_ejecucion()
         enviar_aviso_admin("⚠️ Mobile Radar Notifier: no se pudo inicializar Chrome.")
+        registrar_ejecucion()
         sys.exit(1)
 
     try:
@@ -739,6 +743,8 @@ def main():
 
         # Si no se pudo leer la web, avisar solo al administrador y terminar con error
         if locations is None:
+            # La web cargó pero no se entiende: guarda el HTML y la sonda para ver qué cambió
+            diagnosticar_fallo(driver, donosti_radar_web_url)
             _estado["causa"] = "estructura_desconocida"
             registrar_monitoreo_mensajes(
                 scrapping_time=datetime.now(timezone.utc).isoformat(),

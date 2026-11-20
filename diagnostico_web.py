@@ -14,7 +14,7 @@ import ssl
 import time
 import traceback
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 
@@ -23,10 +23,33 @@ USER_AGENT = "Mozilla/5.0 (compatible; MobileRadarNotifier-diagnostico)"
 MAX_TEXTO_REGISTRO = 500
 
 
-def _limpiar(texto, url):
-    """Convierte a str y oculta la URL secreta."""
+def _fragmentos_secretos(url):
+    """Formas en que puede aparecer la URL (o su ruta y query) en un texto: literal, con barras
+    escapadas, codificada en %, con entidades HTML y sin esquema. Del más largo al más corto."""
+    if not url:
+        return []
+    partes = urlparse(url)
+    base = [url, url.rstrip("/")]
+    if partes.hostname:
+        sin_esquema = url.split("://", 1)[-1]
+        base += [sin_esquema, sin_esquema.rstrip("/")]
+    ruta_query = partes.path + (f"?{partes.query}" if partes.query else "")
+    if len(ruta_query.strip("/")) >= 3:  # una ruta trivial ("/") no es secreta ni distintiva
+        base += [ruta_query, ruta_query.rstrip("/")]
+    if partes.query:
+        base.append(partes.query)
+    formas = set()
+    for f in base:
+        formas.update({f, f.replace("/", "\\/"), quote(f, safe=""), quote(f), html_lib.escape(f)})
+    return sorted((f for f in formas if f), key=len, reverse=True)
+
+
+def ocultar_url(texto, url):
+    """Convierte a str y oculta la URL secreta y sus partes (ruta, query) en cualquier forma habitual."""
     texto = str(texto)
-    return texto.replace(url, "<URL>") if url else texto
+    for fragmento in _fragmentos_secretos(url):
+        texto = texto.replace(fragmento, "<URL>")
+    return texto
 
 
 def _es_timeout(exc):
@@ -43,16 +66,18 @@ def ip_del_runner(timeout=5):
         return None
 
 
-def sondear_red(url, textos=None, timeout_conexion=10, timeout_http=20):
+def sondear_red(url, textos=None, timeout_conexion=10, timeout_http=20, limite_total=30):
     """Comprueba fase a fase (DNS, TCP, TLS, HTTP) si se llega a la web desde esta máquina.
 
     No lanza excepciones: devuelve siempre un diccionario con ``ok``, los tiempos por fase en
     ms (``fases_ms``) y, si algo falla, ``fallo`` con la fase, el tipo de error y si fue timeout.
+    ``limite_total`` (s) acota el tiempo de las fases con red tras la resolución DNS.
     ``textos`` es un dict {nombre: texto}: indica cuáles aparecen en el HTML estático.
+    Del fallo NO se guarda el mensaje de la excepción (puede contener la URL secreta): solo
+    fase, tipo y si fue timeout. Tampoco se guarda el nombre del host.
     """
     sonda = {
         "momento": datetime.now(timezone.utc).isoformat(),
-        "host": None,
         "ip_runner": ip_del_runner(),
         "ip_destino": None,
         "fases_ms": {},
@@ -67,26 +92,45 @@ def sondear_red(url, textos=None, timeout_conexion=10, timeout_http=20):
     def medir(desde):
         return round((time.monotonic() - desde) * 1000)
 
+    limite = time.monotonic() + limite_total
+
+    def plazo(maximo):
+        """Timeout de una fase: el suyo, o lo que quede del límite total (nunca negativo)."""
+        restante = limite - time.monotonic()
+        if restante <= 0:
+            raise TimeoutError("límite total de la sonda agotado")
+        return min(maximo, restante)
+
     try:
         partes = urlparse(url)
-        sonda["host"] = partes.hostname
         https = partes.scheme == "https"
         puerto = partes.port or (443 if https else 80)
 
         t = time.monotonic()
         infos = socket.getaddrinfo(partes.hostname, puerto, type=socket.SOCK_STREAM)
         sonda["fases_ms"]["dns"] = medir(t)
-        ip = infos[0][4][0]
-        sonda["ip_destino"] = ip
+        # IPv4 primero: un runner sin ruta IPv6 no debe dar un falso fallo de TCP
+        direcciones = sorted({info[4][0] for info in infos},
+                             key=lambda d: ":" in d)
 
         fase = "tcp"
         t = time.monotonic()
-        conexion = socket.create_connection((ip, puerto), timeout=timeout_conexion)
+        conexion, ultimo_error = None, None
+        for ip in direcciones:
+            try:
+                conexion = socket.create_connection((ip, puerto), timeout=plazo(timeout_conexion))
+                sonda["ip_destino"] = ip
+                break
+            except Exception as e:
+                ultimo_error = e
+        if conexion is None:
+            raise ultimo_error
         sonda["fases_ms"]["tcp"] = medir(t)
         try:
             if https:
                 fase = "tls"
                 t = time.monotonic()
+                conexion.settimeout(plazo(timeout_conexion))
                 with ssl.create_default_context().wrap_socket(conexion, server_hostname=partes.hostname):
                     pass
                 sonda["fases_ms"]["tls"] = medir(t)
@@ -95,7 +139,7 @@ def sondear_red(url, textos=None, timeout_conexion=10, timeout_http=20):
 
         fase = "http"
         t = time.monotonic()
-        respuesta = requests.get(url, timeout=(timeout_conexion, timeout_http),
+        respuesta = requests.get(url, timeout=(plazo(timeout_conexion), plazo(timeout_http)),
                                  headers={"User-Agent": USER_AGENT})
         sonda["fases_ms"]["http"] = medir(t)
         sonda["http_status"] = respuesta.status_code
@@ -109,7 +153,6 @@ def sondear_red(url, textos=None, timeout_conexion=10, timeout_http=20):
             "fase": fase,
             "tipo": type(e).__name__,
             "timeout": _es_timeout(e),
-            "mensaje": _limpiar(e, url)[:300],
         }
     return sonda
 
@@ -171,11 +214,12 @@ def resumen_texto(texto):
     return {"hash": hash_texto(texto), "longitud": len(texto), "inicio": texto[:MAX_TEXTO_REGISTRO]}
 
 
-def guardar_evidencia(directorio, driver, url, prefijo="fallo"):
-    """Guarda HTML (sin la URL secreta) y captura de pantalla en ``directorio``.
+def guardar_evidencia(directorio, driver, url, prefijo="fallo", con_captura=False):
+    """Guarda el HTML (con la URL secreta y sus partes redactadas) en ``directorio``.
 
-    Sin directorio no hace nada. Cada archivo es independiente: si uno falla, se intenta el otro.
-    Devuelve los nombres de los archivos escritos.
+    La captura de pantalla solo se guarda con ``con_captura=True``: no se puede redactar y los
+    artefactos del workflow pueden ser visibles. Sin directorio no hace nada. Cada archivo es
+    independiente: si uno falla, se intenta el otro. Devuelve los nombres de los archivos escritos.
     """
     if not directorio:
         return []
@@ -188,17 +232,18 @@ def guardar_evidencia(directorio, driver, url, prefijo="fallo"):
     try:
         ruta = os.path.join(directorio, f"{prefijo}.html")
         with open(ruta, "w", encoding="utf-8") as f:
-            f.write(_limpiar(driver.page_source, url))
+            f.write(ocultar_url(driver.page_source, url))
         escritos.append(os.path.basename(ruta))
     except Exception:
         logging.warning("No se pudo guardar el HTML de evidencia: %s", traceback.format_exc())
-    try:
-        ruta = os.path.join(directorio, f"{prefijo}.png")
-        with open(ruta, "wb") as f:
-            f.write(driver.get_screenshot_as_png())
-        escritos.append(os.path.basename(ruta))
-    except Exception:
-        logging.warning("No se pudo guardar la captura de evidencia: %s", traceback.format_exc())
+    if con_captura:
+        try:
+            ruta = os.path.join(directorio, f"{prefijo}.png")
+            with open(ruta, "wb") as f:
+                f.write(driver.get_screenshot_as_png())
+            escritos.append(os.path.basename(ruta))
+        except Exception:
+            logging.warning("No se pudo guardar la captura de evidencia: %s", traceback.format_exc())
     return escritos
 
 
