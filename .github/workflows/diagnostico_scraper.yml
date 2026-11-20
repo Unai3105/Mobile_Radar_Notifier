@@ -1,0 +1,24 @@
+name: Diagnóstico scraper (manual, no envía nada)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    - run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Sonda de red + scraping real (sin Telegram ni Mongo)
+      env:
+        DONOSTI_RADAR_WEB: ${{ secrets.DONOSTI_RADAR_WEB }}
+      run: python diagnostico_scraper.py
