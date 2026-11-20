@@ -259,6 +259,8 @@ def construir_registro(estado, duracion_s, entorno=None):
         "momento": datetime.now(timezone.utc).isoformat(),
         "resultado": estado.get("resultado", "fallo"),
         "causa": estado.get("causa"),
+        "modo": estado.get("modo", "normal"),
+        "aviso_usuarios_fallo": bool(estado.get("aviso_usuarios_fallo")),
         "error": estado.get("error"),
         "duracion_s": round(duracion_s, 1),
         "intentos": estado.get("intentos", []),

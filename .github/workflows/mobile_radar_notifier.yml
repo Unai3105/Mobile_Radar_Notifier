@@ -3,7 +3,19 @@ name: Mobile Radar Notifier
 on:
   schedule:
     - cron: '50 5 * * *'  # 05:50 UTC = 06:50 en España (invierno) / 07:50 (verano)
+    # Reintentos: salen sin hacer nada si hoy ya hubo una ejecución correcta (ver REINTENTO_DIFERIDO).
+    # El de las 08:00 UTC es el último: si aún no se pudo comprobar, avisa a los usuarios.
+    # Si cambias esta hora, cambia también la de ULTIMO_INTENTO más abajo.
+    - cron: '20 6 * * *'
+    - cron: '0 7 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
+
+# Una sola ejecución a la vez: si un cron se retrasa y se solapa con el siguiente, el segundo espera
+# y ya ve el registro del primero (sin esto podría enviarse el aviso dos veces)
+concurrency:
+  group: mobile-radar
+  cancel-in-progress: false
 
 jobs:
   scraping_and_sync:
@@ -49,6 +61,9 @@ jobs:
         MONGO_COLLECTION_REPORTS: ${{ secrets.MONGO_COLLECTION_REPORTS }}
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         EVIDENCIAS_DIR: evidencias  # HTML y captura de la web si falla (se suben como artefacto)
+        # Solo en las ejecuciones programadas distintas de la principal (no en las manuales)
+        REINTENTO_DIFERIDO: ${{ github.event_name == 'schedule' && github.event.schedule != '50 5 * * *' && '1' || '' }}
+        ULTIMO_INTENTO: ${{ github.event_name == 'schedule' && github.event.schedule == '0 8 * * *' && '1' || '' }}
       run: |
         python telegram_radar_notifier.py
 

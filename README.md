@@ -121,6 +121,20 @@ the scraper without sending anything to users.
 
 ---
 
+## Deferred retries and final notice
+
+The workflow runs at 05:50 UTC and again at 06:20, 07:00 and 08:00 UTC. The extra runs
+(`REINTENTO_DIFERIDO=1`) exit immediately if `ejecuciones_scraper` already has a successful run
+today, so users never get a duplicate. The 08:00 run (`ULTIMO_INTENTO=1`) is the last: if the site
+could still not be checked all day, it sends the users one message saying so, with a link to the
+official page (`URL_WEB_RADARES`), because silence could be mistaken for "no radars". It is sent at
+most once a day. Manual runs (`workflow_dispatch`) always run in full and never send that notice.
+Runs are serialized with a `concurrency` group, so a delayed cron cannot overlap the next one. GitHub may
+skip a scheduled run under load: if the 08:00 run is skipped and everything failed before, no notice is sent.
+If you change the last cron, change the `ULTIMO_INTENTO` condition in the workflow too (a test checks it).
+
+---
+
 ## Development
 
 ```bash

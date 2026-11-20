@@ -58,6 +58,14 @@ collection_reports = db[MONGO_COLLECTION_REPORTS]
 MONGO_COLLECTION_EJECUCIONES = os.getenv("MONGO_COLLECTION_EJECUCIONES", "ejecuciones_scraper")
 collection_ejecuciones = db[MONGO_COLLECTION_EJECUCIONES]
 
+# Web oficial de radares: se incluye en el aviso a los usuarios cuando hoy no se ha podido comprobar
+URL_WEB_RADARES = "https://www.donostia.eus/info/ciudadano/radar_movil.nsf/fwHome?ReadForm=&idioma=cas&id=A434305381910"
+
+# Ejecuciones de reintento (las pone el workflow): salen sin hacer nada si hoy ya hubo una ejecución
+# buena; la última, además, avisa a los usuarios si no se pudo comprobar en todo el día.
+REINTENTO_DIFERIDO = os.getenv("REINTENTO_DIFERIDO") == "1"
+ULTIMO_INTENTO = os.getenv("ULTIMO_INTENTO") == "1"
+
 # Si se define, en un fallo se guardan ahí el HTML y una captura (el workflow las sube como artefacto)
 EVIDENCIAS_DIR = os.getenv("EVIDENCIAS_DIR")
 # La captura de pantalla no se puede redactar: solo se guarda si EVIDENCIAS_CAPTURA=1
@@ -186,6 +194,59 @@ def texto_span12(driver):
         return "\n".join((e.text or "") for e in driver.find_elements(By.CLASS_NAME, "span12"))
     except Exception:
         return ""
+
+
+def _desde_hoy_utc():
+    """Inicio del día UTC en el mismo formato ISO de los registros (se comparan como texto)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+
+
+def _hay_registro_hoy(filtro):
+    """True si hay una ejecución de hoy que cumpla ``filtro``. Si Mongo falla devuelve False."""
+    try:
+        consulta = dict(filtro, momento={"$gte": _desde_hoy_utc()})
+        return collection_ejecuciones.find_one(consulta) is not None
+    except Exception:
+        logging.error("No se pudo consultar el historial de ejecuciones: %s", traceback.format_exc())
+        return False
+
+
+def ya_hecho_hoy():
+    """True si hoy ya hubo un scraping correcto (con o sin radares): no hace falta reintentar."""
+    return _hay_registro_hoy({"resultado": {"$in": ["ok_sin_radares", "ok_con_radares"]}})
+
+
+def avisar_usuarios_de_fallo():
+    """Avisa a los usuarios de que hoy no se pudo comprobar, con el enlace a la web. Una vez al día.
+
+    Silencio no es lo mismo que "no hay radares": sin este aviso un fallo total pasaría desapercibido.
+    No lanza: no debe tapar el error real.
+    """
+    if _hay_registro_hoy({"aviso_usuarios_fallo": True}):
+        logging.info("El aviso de fallo a los usuarios ya se envió hoy.")
+        return
+    try:
+        ids_usuarios = obtener_ids_usuarios()
+        texto = ("⚠️ Hoy no he podido comprobar si hay radares móviles planificados. "
+                 "Consúltalo tú directamente aquí:\n" + URL_WEB_RADARES)
+        with requests.Session() as session:
+            for user_id in ids_usuarios:
+                respuesta = session.post(SEND_MESSAGE_URL, data={'chat_id': user_id, 'text': texto}, timeout=30)
+                if respuesta.status_code == 200:
+                    logging.info("Aviso de fallo enviado a %s", user_id)
+                else:
+                    logging.error("Error al enviar el aviso de fallo a %s: %s", user_id, respuesta.status_code)
+                    if respuesta.status_code == 403:
+                        marcar_usuario_inactivo(user_id)
+        _estado["aviso_usuarios_fallo"] = True
+    except Exception:
+        logging.error("No se pudo avisar a los usuarios del fallo: %s", traceback.format_exc())
+
+
+def avisar_si_ultimo_intento():
+    """En la última ejecución del día, si el scraping no llegó a ir bien, avisa a los usuarios."""
+    if ULTIMO_INTENTO and "resultado" not in _estado:
+        avisar_usuarios_de_fallo()
 
 
 def registrar_ejecucion():
@@ -723,6 +784,11 @@ def main():
     _inicio_presupuesto = time.monotonic()
     _reiniciar_estado()
 
+    _estado["modo"] = "ultimo_intento" if ULTIMO_INTENTO else ("reintento" if REINTENTO_DIFERIDO else "normal")
+    if (REINTENTO_DIFERIDO or ULTIMO_INTENTO) and ya_hecho_hoy():
+        logging.info("Hoy ya hubo una ejecución correcta: este reintento no hace nada.")
+        return
+
     # Sonda de red previa (no lanza): sirve de referencia si luego falla la carga de la web
     _estado["sonda_inicial"] = diagnostico_web.sondear_red(donosti_radar_web_url, TEXTOS_SONDA, limite_total=20)
     logging.info("Sonda de red inicial: %s", diagnostico_web.resumen_sonda(_estado["sonda_inicial"]))
@@ -732,6 +798,7 @@ def main():
     if not driver:
         _estado["causa"] = "chrome_no_inicia"
         enviar_aviso_admin("⚠️ Mobile Radar Notifier: no se pudo inicializar Chrome.")
+        avisar_si_ultimo_intento()
         registrar_ejecucion()
         sys.exit(1)
 
@@ -814,6 +881,7 @@ def main():
             logging.info("Driver de Chrome cerrado correctamente.")
         except Exception:
             logging.warning("No se pudo cerrar el driver: %s", traceback.format_exc())
+        avisar_si_ultimo_intento()
         registrar_ejecucion()
 
 
