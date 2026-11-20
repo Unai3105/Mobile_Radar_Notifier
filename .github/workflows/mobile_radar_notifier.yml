@@ -48,8 +48,19 @@ jobs:
         MONGO_COLLECTION_INTERACTIONS: ${{ secrets.MONGO_COLLECTION_INTERACTIONS }}
         MONGO_COLLECTION_REPORTS: ${{ secrets.MONGO_COLLECTION_REPORTS }}
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+        EVIDENCIAS_DIR: evidencias  # HTML y captura de la web si falla (se suben como artefacto)
       run: |
         python telegram_radar_notifier.py
+
+    # Evidencias del fallo (HTML con la URL secreta redactada; sin captura de pantalla): solo existen si el scraping falló
+    - name: Subir evidencias del fallo
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: evidencias-fallo
+        path: evidencias/
+        if-no-files-found: ignore
+        retention-days: 30
 
     # Paso 3: Mantener activo el cron (GitHub lo desactiva tras 60 días sin actividad en el repo)
     - name: Keepalive del workflow programado

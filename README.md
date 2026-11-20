@@ -93,7 +93,31 @@ Repository secrets (Settings → Secrets and variables → Actions):
 | `MONGO_COLLECTION_INTERACTIONS`, `MONGO_COLLECTION_REPORTS` | Collection names |
 | `ADMIN_CHAT_ID` | *(Optional)* Telegram chat that receives error alerts |
 
+| `MONGO_COLLECTION_EJECUCIONES` | *(Optional)* Collection with one record per scraping run; default `ejecuciones_scraper` |
+
 > MongoDB Atlas pauses free clusters after long inactivity: if the run fails with a DNS error for `_mongodb._tcp...`, resume the cluster in Atlas.
+
+---
+
+## Diagnosis and run history
+
+Every run (successful or not) stores one document in the `ejecuciones_scraper` collection:
+result (`ok_sin_radares`, `ok_con_radares`, `fallo`), cause, duration, each wait attempt, and a
+network probe (runner IP, DNS/TCP/TLS/HTTP timings per phase, HTTP status). On failure a second
+probe is taken, and the admin alert states the cause (see `diagnostico_web.py`):
+
+| Cause | Meaning |
+|---|---|
+| `red_dns`, `red_tcp_timeout`, `red_tcp_rechazada`, `red_tls` | The site is not reachable from the runner (phase shown) |
+| `http_timeout`, `http_error_conexion`, `http_<code>` | Connection works but the HTTP request fails or returns an error status |
+| `navegador_err_*` | Plain HTTP works but Chrome shows a network error page (e.g. `ERR_TIMED_OUT`) |
+| `contenido_no_encontrado` | Page loads fine but the expected text is not there: the site may have changed (compare `contenido.hash`/`inicio`) |
+| `estructura_desconocida`, `chrome_no_inicia`, `error_interno` | Scraper-side problems |
+
+On failure the page HTML (secret URL, path and query redacted) is uploaded as the
+`evidencias-fallo` artifact (30 days). Screenshots are off by default (they cannot be redacted);
+set `EVIDENCIAS_CAPTURA=1` to include them. The manual workflow `diagnostico_scraper.yml` runs the probe and
+the scraper without sending anything to users.
 
 ---
 
