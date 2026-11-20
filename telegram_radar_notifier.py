@@ -11,6 +11,7 @@ from io import BytesIO
 from PIL import Image, ImageChops
 import traceback
 import requests
+import diagnostico_web
 import logging
 import time
 import html
@@ -51,6 +52,14 @@ collection_interactions = db[MONGO_COLLECTION_INTERACTIONS]
 
 MONGO_COLLECTION_REPORTS = os.getenv("MONGO_COLLECTION_REPORTS")
 collection_reports = db[MONGO_COLLECTION_REPORTS]
+
+# Una entrada por ejecución del scraping (buena o mala), con la causa de cada fallo.
+# Opcional: si no se define, se usa este nombre por defecto.
+MONGO_COLLECTION_EJECUCIONES = os.getenv("MONGO_COLLECTION_EJECUCIONES", "ejecuciones_scraper")
+collection_ejecuciones = db[MONGO_COLLECTION_EJECUCIONES]
+
+# Si se define, en un fallo se guardan ahí el HTML y una captura (el workflow las sube como artefacto)
+EVIDENCIAS_DIR = os.getenv("EVIDENCIAS_DIR")
 
 
 
@@ -123,7 +132,14 @@ def ocultar_elementos(driver):
         raise # Propaga el error al `main`
 
 class WebNoDisponible(Exception):
-    """La web de radares no mostró el contenido esperado tras todos los reintentos."""
+    """La web de radares no mostró el contenido esperado tras todos los reintentos.
+
+    ``causa`` es la causa clasificada por diagnostico_web.clasificar_causa (o None si no se conoce).
+    """
+
+    def __init__(self, mensaje="", causa=None):
+        super().__init__(mensaje)
+        self.causa = causa
 
 
 # Esperas (s) por intento para localizar "span12": la primera es la habitual y
@@ -140,6 +156,65 @@ _inicio_presupuesto = None  # time.monotonic() al arrancar main()
 TEXTO_SIN_RADARES = "No hay ninguna ubicación planificada para hoy."
 TEXTO_CON_RADARES = "el radar móvil estará operando en las siguientes ubicaciones"
 MAX_HTML_DIAGNOSTICO = 3000
+
+# Textos que se buscan también en el HTML estático de la sonda de red
+TEXTOS_SONDA = {"sin_radares": TEXTO_SIN_RADARES, "con_radares": TEXTO_CON_RADARES}
+
+# Estado de la ejecución en curso: lo rellenan main() y las funciones de espera, y se guarda
+# en Mongo al terminar (ver registrar_ejecucion)
+_estado = {}
+
+
+def _reiniciar_estado():
+    _estado.clear()
+    _estado.update({"intentos": [], "evidencias": []})
+
+
+def _html_body(driver):
+    try:
+        return driver.find_element(By.TAG_NAME, "body").get_attribute("outerHTML") or ""
+    except Exception:
+        return ""
+
+
+def texto_span12(driver):
+    """Texto de todos los "span12": lo que el scraper realmente lee de la web."""
+    try:
+        return "\n".join((e.text or "") for e in driver.find_elements(By.CLASS_NAME, "span12"))
+    except Exception:
+        return ""
+
+
+def registrar_ejecucion():
+    """Guarda en Mongo el resultado de esta ejecución. Nunca lanza: no debe tapar el error real."""
+    try:
+        inicio = _inicio_presupuesto if _inicio_presupuesto is not None else time.monotonic()
+        registro = diagnostico_web.construir_registro(_estado, time.monotonic() - inicio)
+        resultado = collection_ejecuciones.insert_one(registro)
+        logging.info("Ejecución registrada (%s, causa=%s) con ID: %s",
+                     registro["resultado"], registro["causa"], resultado.inserted_id)
+    except Exception:
+        logging.error("No se pudo registrar la ejecución en MongoDB: %s", traceback.format_exc())
+
+
+def diagnosticar_fallo(driver, url):
+    """Tras agotar los reintentos: segunda sonda de red, causa clasificada y evidencias.
+
+    Devuelve (causa, resumen de la sonda). Guarda todo en ``_estado``. Nunca lanza.
+    """
+    try:
+        sonda = diagnostico_web.sondear_red(url, TEXTOS_SONDA)
+        _estado["sonda_post_fallo"] = sonda
+        error_navegador = diagnostico_web.detectar_error_navegador(_html_body(driver))
+        causa = diagnostico_web.clasificar_causa(sonda, error_navegador)
+        _estado["causa"] = causa
+        _estado["contenido"] = diagnostico_web.resumen_texto(texto_span12(driver))
+        _estado["evidencias"] = diagnostico_web.guardar_evidencia(EVIDENCIAS_DIR, driver, url)
+        logging.error("Causa del fallo: %s | %s", causa, diagnostico_web.resumen_sonda(sonda))
+        return causa, diagnostico_web.resumen_sonda(sonda)
+    except Exception:
+        logging.error("Error al diagnosticar el fallo: %s", traceback.format_exc())
+        return "causa_desconocida", "sin diagnóstico de red"
 
 
 def registrar_diagnostico(driver, url=None):
@@ -191,12 +266,20 @@ def esperar_contenido_radares(driver, url=None, esperas=None, pausas=None, presu
             logging.warning("Presupuesto de tiempo agotado antes del intento %s.", intento + 1)
             break
         intentos += 1
+        t_intento = time.monotonic()
         try:
             WebDriverWait(driver, min(espera, restante)).until(contenido_radares_listo)
+            _estado.setdefault("intentos", []).append(
+                {"n": intento + 1, "espera_s": min(espera, restante), "resultado": "ok",
+                 "duracion_s": round(time.monotonic() - t_intento, 1)})
             if intento:
                 logging.info("Contenido encontrado tras %s reintento(s).", intento)
             return
         except TimeoutException:
+            _estado.setdefault("intentos", []).append(
+                {"n": intento + 1, "espera_s": min(espera, restante), "resultado": "timeout",
+                 "duracion_s": round(time.monotonic() - t_intento, 1),
+                 "error_navegador": diagnostico_web.detectar_error_navegador(_html_body(driver))})
             logging.warning("No apareció el contenido de radares en %s s (intento %s/%s).",
                             min(espera, restante), intento + 1, len(esperas))
             if intento + 1 < len(esperas):
@@ -211,12 +294,13 @@ def esperar_contenido_radares(driver, url=None, esperas=None, pausas=None, presu
                     logging.warning("Fallo al recargar la página: %s", traceback.format_exc())
 
     registrar_diagnostico(driver, url)
+    causa, resumen_red = diagnosticar_fallo(driver, url)
     enviar_aviso_admin(
         "⚠️ Mobile Radar Notifier: la web de radares no cargó el contenido esperado "
-        f"tras {intentos} intento(s). No se ha enviado nada a los usuarios. "
-        "Revisa el log del job en GitHub Actions."
+        f"tras {intentos} intento(s). Causa: {causa} ({resumen_red}). "
+        "No se ha enviado nada a los usuarios. Revisa el log del job en GitHub Actions."
     )
-    raise WebNoDisponible("No apareció el contenido de radares tras todos los reintentos")
+    raise WebNoDisponible("No apareció el contenido de radares tras todos los reintentos", causa=causa)
 
 
 def comprobar_radares(driver):
@@ -633,10 +717,17 @@ def main():
 
     global _inicio_presupuesto
     _inicio_presupuesto = time.monotonic()
+    _reiniciar_estado()
+
+    # Sonda de red previa (no lanza): sirve de referencia si luego falla la carga de la web
+    _estado["sonda_inicial"] = diagnostico_web.sondear_red(donosti_radar_web_url, TEXTOS_SONDA)
+    logging.info("Sonda de red inicial: %s", diagnostico_web.resumen_sonda(_estado["sonda_inicial"]))
 
     # Inicializar el driver
     driver = inicializar_driver()
     if not driver:
+        _estado["causa"] = "chrome_no_inicia"
+        registrar_ejecucion()
         enviar_aviso_admin("⚠️ Mobile Radar Notifier: no se pudo inicializar Chrome.")
         sys.exit(1)
 
@@ -644,9 +735,11 @@ def main():
         # Cargar la página y comprobar el estado de los radares
         cargar_pagina(driver, donosti_radar_web_url)
         locations = comprobar_radares(driver)
+        _estado["contenido"] = diagnostico_web.resumen_texto(texto_span12(driver))
 
         # Si no se pudo leer la web, avisar solo al administrador y terminar con error
         if locations is None:
+            _estado["causa"] = "estructura_desconocida"
             registrar_monitoreo_mensajes(
                 scrapping_time=datetime.now(timezone.utc).isoformat(),
                 has_radar=False,
@@ -657,6 +750,8 @@ def main():
             )
             enviar_aviso_admin("⚠️ Mobile Radar Notifier: no se pudo verificar si hay radares. Puede que la web haya cambiado.")
             sys.exit(1)
+
+        _estado["resultado"] = "ok_con_radares" if locations else "ok_sin_radares"
 
         # Obtener los IDs de los usuarios
         ids_usuarios = obtener_ids_usuarios()
@@ -693,10 +788,15 @@ def main():
             ids_error=ids_error
         )
 
-    except WebNoDisponible:
+    except WebNoDisponible as e:
+        _estado["causa"] = e.causa or "causa_desconocida"
         raise  # El administrador ya fue avisado con detalle; el job termina en error
 
-    except Exception:
+    except Exception as e:
+        # Si el scraping ya había ido bien, "resultado" lo conserva y "error" dice qué falló después
+        _estado["error"] = type(e).__name__
+        if "resultado" not in _estado:
+            _estado["causa"] = "error_interno"
         enviar_aviso_admin("⚠️ Mobile Radar Notifier: la ejecución ha fallado. Revisa GitHub Actions.")
         raise
 
@@ -708,6 +808,7 @@ def main():
             logging.info("Driver de Chrome cerrado correctamente.")
         except Exception:
             logging.warning("No se pudo cerrar el driver: %s", traceback.format_exc())
+        registrar_ejecucion()
 
 
 
