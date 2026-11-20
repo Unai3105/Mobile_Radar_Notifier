@@ -2,8 +2,6 @@ name: Diagnóstico scraper (manual, no envía nada)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ccr-6d5ddaf2-gjz1y6]
 
 jobs:
   diagnostico:
