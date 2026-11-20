@@ -11,6 +11,12 @@ on:
     - cron: '0 8 * * *'
   workflow_dispatch:
 
+# Una sola ejecución a la vez: si un cron se retrasa y se solapa con el siguiente, el segundo espera
+# y ya ve el registro del primero (sin esto podría enviarse el aviso dos veces)
+concurrency:
+  group: mobile-radar
+  cancel-in-progress: false
+
 jobs:
   scraping_and_sync:
     runs-on: ubuntu-latest

@@ -227,9 +227,8 @@ def avisar_usuarios_de_fallo():
         return
     try:
         ids_usuarios = obtener_ids_usuarios()
-        texto = ("⚠️ Hoy no he podido comprobar si hay radares móviles planificados "
-                 "(la web del ayuntamiento no ha respondido). Consúltalo tú directamente aquí:\n"
-                 + URL_WEB_RADARES)
+        texto = ("⚠️ Hoy no he podido comprobar si hay radares móviles planificados. "
+                 "Consúltalo tú directamente aquí:\n" + URL_WEB_RADARES)
         with requests.Session() as session:
             for user_id in ids_usuarios:
                 respuesta = session.post(SEND_MESSAGE_URL, data={'chat_id': user_id, 'text': texto}, timeout=30)

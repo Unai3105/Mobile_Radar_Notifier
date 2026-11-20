@@ -637,6 +637,7 @@ def test_el_workflow_programa_los_reintentos_y_marca_solo_el_ultimo():
     flujo = yaml.safe_load(open(ruta))
     crones = [c["cron"] for c in flujo[True]["schedule"]]  # "on" lo lee YAML como True
     assert crones == ["50 5 * * *", "20 6 * * *", "0 7 * * *", "0 8 * * *"]
+    assert flujo["concurrency"] == {"group": "mobile-radar", "cancel-in-progress": False}
     texto = open(ruta).read()
     # La hora del último intento del workflow coincide con el último cron programado
     assert f"github.event.schedule == '{crones[-1]}'" in texto
